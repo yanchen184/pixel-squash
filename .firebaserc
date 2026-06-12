@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "game-hub-d2bbf"
+  },
+  "targets": {
+    "game-hub-d2bbf": {
+      "hosting": {
+        "pixel-squash": [
+          "pixel-squash"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}
