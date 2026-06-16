@@ -1,4 +1,4 @@
-import { createInitialState, type GameState } from '@/data/gameState';
+import { createInitialState, type GameState, type GameMode } from '@/data/gameState';
 import { step } from './simulate';
 import type { InputSource } from '@/game/input/InputSource';
 
@@ -20,8 +20,14 @@ export class SimRunner {
     return this.state;
   }
 
+  private gameMode: GameMode = 'match';
+
+  setGameMode(mode: GameMode): void {
+    this.gameMode = mode;
+  }
+
   reset(): void {
-    this.state = createInitialState();
+    this.state = { ...createInitialState(), gameMode: this.gameMode };
     this.accumulator = 0;
     this.inputA.reset?.();
     this.inputB.reset?.();

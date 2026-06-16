@@ -7,10 +7,13 @@ import {
   SWING_REACH,
   SWING_REACH_Z,
   SWING_COOLDOWN_FRAMES,
+  STRIKE_Z,
+  TIMING_WINDOW,
   racketCenter,
   T_SPOT,
   type GameState,
   type PlayerState,
+  type ShuttleState,
   type SwingQuality,
   type Side,
   type Vec2,
@@ -165,7 +168,9 @@ type WallImpactFX = {
   kind: 'tin' | 'valid' | 'out';
 };
 
-export type RendererConfig = { difficulty: Difficulty };
+import type { GameMode } from '@/data/gameState';
+
+export type RendererConfig = { difficulty: Difficulty; gameMode?: GameMode };
 
 export class CanvasRenderer {
   private readonly ctx: CanvasRenderingContext2D;
@@ -217,6 +222,10 @@ export class CanvasRenderer {
     this.local = new LocalInput(0);
     this.ai = new AIInput(cfg.difficulty, 1, 0x1234abcd);
     this.runner = new SimRunner(this.local, this.ai);
+    if (cfg.gameMode) {
+      this.runner.setGameMode(cfg.gameMode);
+      this.ai.setPracticeMode(cfg.gameMode === 'practice');
+    }
 
     // Kick off asset loading — non-blocking; game runs with procedural fallback
     // until images arrive.
@@ -440,13 +449,20 @@ export class CanvasRenderer {
     this.drawWallPings();
     if (this.faultFlash) this.drawFaultFlash(this.faultFlash);
 
+    // Practice mode: always show landing marker so player can read trajectories.
     if (s.shuttle.inPlay && s.shuttle.landing) {
-      this.drawLandingMarker(s.shuttle.landing, s.shuttle.landingEta);
+      this.drawLandingMarker(s.shuttle.landing, s.shuttle.landingEta, s.gameMode === 'practice');
     }
 
     // T-spot recovery hint — show when in rally and player hasn't just hit
     if (s.phase === 'rally' && s.shuttle.lastHitBy === 0) {
       this.drawTSpotHint();
+    }
+
+    // Aim indicator: show the player their timing-based front-wall target when the
+    // shuttle is near their strike zone and it's their turn to return.
+    if (s.phase === 'rally' && s.shuttle.inPlay && s.shuttle.lastHitBy !== 0) {
+      this.drawAimIndicator(s.shuttle);
     }
 
     this.drawDustPuffs();
@@ -473,6 +489,12 @@ export class CanvasRenderer {
     // Foreground glass layer — drawn last so it sits IN FRONT of the actors,
     // sandwiching them between the solid back walls and the glass gallery.
     this.drawBackGlassFront();
+
+    // Serve guide line: during serve phase, draw a dashed line from server to target front wall zone.
+    if (s.phase === 'serve' && s.phaseTimer > 0 && !s.awaitingServeChoice) {
+      const server = s.server === 0 ? s.p1 : s.p2;
+      this.drawServeGuideLine(server.pos, s.serveBox);
+    }
 
     // Service box choice prompt (human server only).
     if (s.awaitingServeChoice && s.server === 0) {
@@ -813,6 +835,77 @@ export class CanvasRenderer {
   }
 
   /** Subtle T-spot pulse — nudges the player to return to centre after hitting. */
+  /**
+   * Aim indicator: shows the player the front-wall horizontal target zone based on
+   * current swing timing. Timing early → ball goes left; late → ball goes right;
+   * perfect → centre. A sliding marker on the front wall top edge shows the zone.
+   * Only visible when the shuttle is approaching the player's strike height.
+   */
+  private drawAimIndicator(shuttle: ShuttleState): void {
+    const ctx = this.ctx;
+    // Only show when ball is near the player and descending toward strike zone.
+    const dz = shuttle.z - STRIKE_Z;
+    if (Math.abs(dz) > SWING_REACH_Z) return; // too far above
+    if (shuttle.z < 0) return;
+
+    // Compute timing delta: positive = ball still above STRIKE_Z (early), negative = below (late).
+    // Same logic as sim's timingDelta but simplified.
+    const dt = shuttle.vz <= 0
+      ? Math.sign(dz) * Math.min(TIMING_WINDOW, Math.abs(dz) / 6)
+      : TIMING_WINDOW * 0.5; // rising ball = always "early" zone
+
+    // Map timing to aimX: early (dt>0) → left (aimX<0), late (dt<0) → right (aimX>0).
+    const aimX = Math.max(-1, Math.min(1, -dt / TIMING_WINDOW));
+    const centerX = COURT.width * 0.5;
+    const xEdgeL = COURT.width * 0.12;
+    const xEdgeR = COURT.width * 0.88;
+    const edge = aimX < 0 ? xEdgeL : xEdgeR;
+    const targetWallX = aimX === 0 ? centerX : centerX + (edge - centerX) * Math.abs(aimX);
+
+    // Urgency: brighter and larger when ball is very close to strike zone.
+    const proximity = 1 - Math.min(1, Math.abs(dz) / SWING_REACH_Z);
+    if (proximity < 0.25) return; // too far, don't clutter
+
+    // Draw a glowing dot on the front wall at the predicted hit point.
+    // The front wall is at y=0; we draw it at height ~mid (tin_height to out_height midpoint).
+    const wallZ = TIN_HEIGHT + (FRONT_OUT_HEIGHT - TIN_HEIGHT) * 0.5;
+    const p = this.pt(targetWallX, 0, wallZ);
+
+    const alpha = proximity * 0.75;
+    const isLeft  = aimX < -0.15;
+    const isRight = aimX > 0.15;
+    const dirColor = isLeft ? 'rgba(100,220,140,' : isRight ? 'rgba(255,170,60,' : 'rgba(120,200,255,';
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.shadowColor = dirColor + '0.9)';
+    ctx.shadowBlur = 12;
+    ctx.strokeStyle = dirColor + '0.9)';
+    ctx.lineWidth = 3;
+    // Horizontal line segment centred on the aim point
+    const hw = 28 * proximity;
+    ctx.beginPath();
+    ctx.moveTo(p.x - hw, p.y);
+    ctx.lineTo(p.x + hw, p.y);
+    ctx.stroke();
+    // Centre dot
+    ctx.fillStyle = dirColor + '1)';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 6 * proximity, 0, Math.PI * 2);
+    ctx.fill();
+    // Label: ← centre →
+    if (proximity > 0.5) {
+      ctx.globalAlpha = alpha * 0.9;
+      ctx.font = `bold ${Math.round(13 * proximity)}px sans-serif`;
+      ctx.fillStyle = dirColor + '1)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      const label = isLeft ? '← 左' : isRight ? '右 →' : '中央';
+      ctx.fillText(label, p.x, p.y - 10);
+    }
+    ctx.restore();
+  }
+
   private drawTSpotHint(): void {
     const ctx = this.ctx;
     const p = this.pt(T_SPOT.x, T_SPOT.y, 0);
@@ -828,6 +921,45 @@ export class CanvasRenderer {
     ctx.beginPath();
     ctx.ellipse(p.x, p.y, r, r * 0.42, 0, 0, Math.PI * 2);
     ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * Dashed guide line from the server's position toward the front-wall target zone,
+   * shown during the serve countdown. Gives the server a visual cue of where their
+   * serve will land.
+   */
+  private drawServeGuideLine(serverPos: Vec2, serveBox: 0 | 1): void {
+    const ctx = this.ctx;
+    // Target front-wall x: opposite to the serve box so it rebounds diagonally.
+    const targetX = serveBox === 1 ? COURT.width * 0.35 : COURT.width * 0.65;
+    const targetZ = WALL_HEIGHT * 0.55; // mid-high strike zone
+
+    const from = this.pt(serverPos.x, serverPos.y, 60);
+    const to   = this.pt(targetX, 0, targetZ);
+
+    const pulse = 0.55 + Math.sin(Date.now() * 0.012) * 0.30;
+
+    ctx.save();
+    ctx.globalAlpha = pulse * 0.65;
+    ctx.shadowColor = 'rgba(80,200,255,0.8)';
+    ctx.shadowBlur = 10;
+    ctx.strokeStyle = 'rgba(80,200,255,0.9)';
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([14, 9]);
+    ctx.lineDashOffset = (Date.now() * 0.05) % 23;
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Small dot at the target wall point
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = 'rgba(100,220,255,0.9)';
+    ctx.beginPath();
+    ctx.arc(to.x, to.y, 5, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 
@@ -919,7 +1051,7 @@ export class CanvasRenderer {
     }
   }
 
-  private drawLandingMarker(landing: Vec2, eta: number): void {
+  private drawLandingMarker(landing: Vec2, eta: number, practice = false): void {
     const ctx = this.ctx;
     const p = this.pt(landing.x, landing.y, 0);
     const scale = this.proj.depthScale(landing.y);
@@ -928,33 +1060,50 @@ export class CanvasRenderer {
     const close = Math.max(0, Math.min(1, eta / 80));
     const urgency = 1 - close; // 0 = far, 1 = about to land
 
-    // Colour: green (far) → amber → red (imminent)
-    const r = urgency;
-    const g = Math.max(0, 1 - urgency * 1.4);
-    const colFill  = `rgba(${Math.round(80 + r * 175)},${Math.round(200 - urgency * 150)},${Math.round(80 - urgency * 60)},${0.85 + urgency * 0.1})`;
-    const colGlow  = `rgba(${Math.round(80 + r * 175)},${Math.round(200 - urgency * 150)},60,${0.3 + urgency * 0.3})`;
-
-    const outerR = (6 + close * 28) * scale;
+    // Practice: always full-brightness cyan target — training aid always visible.
+    // Match: green (far) → amber → red (imminent) with decreasing ring.
+    let colFill: string;
+    let colGlow: string;
+    let outerR: number;
+    if (practice) {
+      colFill = `rgba(80,220,255,${0.75 + urgency * 0.2})`;
+      colGlow = `rgba(40,180,255,${0.4 + urgency * 0.3})`;
+      outerR = (10 + close * 36) * scale;
+    } else {
+      const r = urgency;
+      const g = Math.max(0, 1 - urgency * 1.4);
+      void g;
+      colFill  = `rgba(${Math.round(80 + r * 175)},${Math.round(200 - urgency * 150)},${Math.round(80 - urgency * 60)},${0.85 + urgency * 0.1})`;
+      colGlow  = `rgba(${Math.round(80 + r * 175)},${Math.round(200 - urgency * 150)},60,${0.3 + urgency * 0.3})`;
+      outerR = (6 + close * 28) * scale;
+    }
     const pulse  = urgency > 0.6 ? Math.sin(Date.now() * 0.025) * 1.5 * urgency * scale : 0;
 
     ctx.save();
     ctx.shadowColor = colGlow;
-    ctx.shadowBlur = 10 + urgency * 14;
+    ctx.shadowBlur = (practice ? 16 : 10) + urgency * 14;
     ctx.strokeStyle = colFill;
-    ctx.lineWidth = (2 + urgency * 2) * scale;
+    ctx.lineWidth = (practice ? 3 : 2 + urgency * 2) * scale;
     // Outer shrinking ring
     ctx.beginPath();
     ctx.ellipse(p.x, p.y, outerR + pulse, (outerR + pulse) * 0.38, 0, 0, Math.PI * 2);
     ctx.stroke();
+    // Practice: extra inner cross-hair for precise target
+    if (practice) {
+      const ch = 10 * scale;
+      ctx.lineWidth = 1.5 * scale;
+      ctx.beginPath();
+      ctx.moveTo(p.x - ch, p.y); ctx.lineTo(p.x + ch, p.y);
+      ctx.moveTo(p.x, p.y - ch * 0.38); ctx.lineTo(p.x, p.y + ch * 0.38);
+      ctx.stroke();
+    }
     // Solid centre dot — grows as ball approaches
     ctx.fillStyle = colFill;
     ctx.beginPath();
-    const dotR = (3 + urgency * 4) * scale;
+    const dotR = (practice ? 5 : 3 + urgency * 4) * scale;
     ctx.ellipse(p.x, p.y, dotR, dotR * 0.42, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
-
-    void g; // suppress lint (colour gradient computed inline above)
   }
 
   /** Foot-skid dust puffs. */
@@ -1625,6 +1774,8 @@ export class CanvasRenderer {
   }
 
   // ---- HUD bridge ----
+  private lastAwaitingServe = false;
+
   private syncHud(s: GameState): void {
     if (s.scores[0] !== this.lastScores[0] || s.scores[1] !== this.lastScores[1]) {
       this.lastScores = [...s.scores];
@@ -1634,6 +1785,12 @@ export class CanvasRenderer {
     if (s.winner !== null && s.winner !== this.lastWinner) {
       this.lastWinner = s.winner;
       eventBus.emit('match:over', { winner: s.winner as 0 | 1, scores: [...s.scores] });
+    }
+    // Notify touch controls when the human must choose a service box.
+    const awaiting = s.awaitingServeChoice && s.server === 0;
+    if (awaiting !== this.lastAwaitingServe) {
+      this.lastAwaitingServe = awaiting;
+      eventBus.emit('serve:awaiting', { waiting: awaiting });
     }
   }
 

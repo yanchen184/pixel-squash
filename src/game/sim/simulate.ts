@@ -12,6 +12,7 @@ import {
   TIN_HEIGHT,
   FRONT_OUT_HEIGHT,
   WALL_HEIGHT,
+  SERVE_LINE_Y,
   POINTS_TO_WIN,
   WIN_BY,
   STAMINA_MAX,
@@ -84,7 +85,15 @@ export function step(state: GameState, inA: InputFrame, inB: InputFrame): GameSt
 
   if (state.phase === 'serve' || state.phase === 'point') {
     const timer = state.phaseTimer - 1;
-    if (timer > 0) return { ...state, frame, phaseTimer: timer };
+    if (timer > 0) {
+      // During the countdown, let players reposition within their service box.
+      if (state.phase === 'serve') {
+        const p1s = movePlayer(state.p1, inA, 0, state.shuttle, state);
+        const p2s = movePlayer(state.p2, inB, 1, state.shuttle, state);
+        return { ...state, frame, phaseTimer: timer, p1: p1s, p2: p2s };
+      }
+      return { ...state, frame, phaseTimer: timer };
+    }
     if (state.phase === 'point') return { ...resetForServe(state, state.server), frame };
     // Human server must choose a service box before the serve launches.
     if (state.awaitingServeChoice) {
@@ -99,8 +108,8 @@ export function step(state: GameState, inA: InputFrame, inB: InputFrame): GameSt
   }
 
   // ---- Rally tick ----
-  let p1 = movePlayer(state.p1, inA, 0, state.shuttle);
-  let p2 = movePlayer(state.p2, inB, 1, state.shuttle);
+  let p1 = movePlayer(state.p1, inA, 0, state.shuttle, state);
+  let p2 = movePlayer(state.p2, inB, 1, state.shuttle, state);
 
   let shuttle = stepBall(state.shuttle);
 
@@ -126,13 +135,17 @@ export function step(state: GameState, inA: InputFrame, inB: InputFrame): GameSt
 
   // Scoring: a dead-ball reason was set this tick (tin/out/double-bounce/not-front-wall).
   if (shuttle.inPlay && shuttle.deadReason !== null) {
+    // Practice mode: reset rally without scoring instead of ending the point.
+    if (state.gameMode === 'practice') {
+      return { ...resetForServe({ ...state, frame, p1, p2, shuttle, hitstop: 0, rallyHitCount }, state.server), frame };
+    }
     return scorePoint({ ...state, frame, p1, p2, shuttle, hitstop: 0, rallyHitCount });
   }
 
   return { ...state, frame, p1, p2, shuttle, hitstop, rallyHitCount };
 }
 
-function movePlayer(pl: PlayerState, input: InputFrame, side: Side, shuttle: ShuttleState): PlayerState {
+function movePlayer(pl: PlayerState, input: InputFrame, side: Side, shuttle: ShuttleState, state?: GameState): PlayerState {
   const facing: Facing4 = 'up'; // both players face the front wall
   const swingCooldown = Math.max(0, pl.swingCooldown - 1);
   const baseFields = { ...pl, swingCooldown, facing, justHit: false };
@@ -199,6 +212,30 @@ function movePlayer(pl: PlayerState, input: InputFrame, side: Side, shuttle: Shu
 
   x = clampX(x);
   y = clampY(y);
+
+  // During the serve phase, constrain player movement to their service box so
+  // the server is in the correct box and the receiver stays in the opposite box.
+  if (state && state.phase === 'serve' && state.phaseTimer > 0) {
+    const midX = COURT.width / 2;
+    const isServer = side === state.server;
+    const box = isServer ? state.serveBox : (state.serveBox === 0 ? 1 : 0);
+    // Server stays in their service box (behind SERVE_LINE_Y, left or right of centre).
+    // Receiver stays in opposite box.
+    if (isServer) {
+      // Server must be behind the short service line
+      y = Math.max(y, SERVE_LINE_Y + PLAYER_MARGIN);
+      // Server constrained to their box (left=x<midX, right=x>midX)
+      if (box === 0) x = Math.min(x, midX - PLAYER_MARGIN);
+      else x = Math.max(x, midX + PLAYER_MARGIN);
+    } else {
+      // Receiver stays in the opposite back box
+      y = Math.max(y, SERVE_LINE_Y + PLAYER_MARGIN);
+      if (box === 0) x = Math.min(x, midX - PLAYER_MARGIN);
+      else x = Math.max(x, midX + PLAYER_MARGIN);
+    }
+    x = clampX(x);
+    y = clampY(y);
+  }
 
   return {
     ...baseFields,

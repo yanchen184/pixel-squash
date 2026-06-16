@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Difficulty } from '@/game/input/AIInput';
+import type { GameMode } from '@/data/gameState';
 import type { MatchConfig } from './GameView';
 import { GameView } from './GameView';
 import { useIsPortraitPhone } from './useOrientation';
@@ -9,6 +10,7 @@ type Screen = 'menu' | 'howto' | 'difficulty' | 'match';
 export function App() {
   const [screen, setScreen] = useState<Screen>('menu');
   const [difficulty, setDifficulty] = useState<Difficulty>('medium');
+  const [gameMode, setGameMode] = useState<GameMode>('match');
   const portraitPhone = useIsPortraitPhone();
 
   // The court is a fixed 16:9 landscape view — on an upright phone it would shrink
@@ -16,8 +18,9 @@ export function App() {
   // screen render sideways. Desktop / landscape phones fall straight through.
   if (portraitPhone) return <RotatePrompt />;
 
-  const startMatch = (d: Difficulty) => {
+  const startMatch = (d: Difficulty, mode: GameMode = 'match') => {
     setDifficulty(d);
+    setGameMode(mode);
     setScreen('match');
   };
 
@@ -27,6 +30,7 @@ export function App() {
         <h1 style={{ fontSize: 48, margin: 0 }}>🎾 Pixel Squash</h1>
         <p style={{ color: '#aaa' }}>像素壁球 · 挑戰電腦對手</p>
         <button style={bigBtn} onClick={() => setScreen('howto')}>開始遊戲</button>
+        <button style={{ ...bigBtn, background: '#2a7a4a' }} onClick={() => startMatch('easy', 'practice')}>練習模式</button>
         <button style={ghostBtn} onClick={() => setScreen('howto')}>怎麼玩？</button>
       </Center>
     );
@@ -42,7 +46,7 @@ export function App() {
         <h1 style={{ fontSize: 32 }}>選擇難度</h1>
         <div style={{ display: 'flex', gap: 16 }}>
           {(['easy', 'medium', 'hard'] as Difficulty[]).map((d) => (
-            <button key={d} style={{ ...bigBtn, ...diffStyle[d] }} onClick={() => startMatch(d)}>
+            <button key={d} style={{ ...bigBtn, ...diffStyle[d] }} onClick={() => startMatch(d, 'match')}>
               {DIFF_LABEL[d]}
             </button>
           ))}
@@ -56,7 +60,7 @@ export function App() {
   }
 
   // match
-  const config: MatchConfig = { difficulty };
+  const config: MatchConfig = { difficulty, gameMode };
   return <GameView config={config} onExit={() => setScreen('menu')} />;
 }
 

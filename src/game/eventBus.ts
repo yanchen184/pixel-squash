@@ -12,6 +12,8 @@ export type GameEvents = {
   'match:over': { winner: 0 | 1; scores: [number, number] };
   'rally:point': { scoredBy: 0 | 1 };
   'sim:reset': undefined;
+  /** Human player must choose a service box (true = waiting, false = chosen/not waiting). */
+  'serve:awaiting': { waiting: boolean };
 };
 
 type Handler<T> = (payload: T) => void;

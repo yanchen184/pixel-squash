@@ -58,6 +58,7 @@ export class AIInput implements InputSource {
   private lastHitterSign = 0;
   private target: Vec2;
   private fumbleThisShuttle = false;
+  private practiceMode = false;
   /**
    * Synthetic mistime for THIS ball: 0 = clean, >0 = an over-hit that'll sail OUT (above
    * the out line), <0 = an under-hit that'll die in the TIN. Rolled once per incoming ball
@@ -75,6 +76,10 @@ export class AIInput implements InputSource {
 
   setDifficulty(difficulty: Difficulty): void {
     this.p = PARAMS[difficulty];
+  }
+
+  setPracticeMode(on: boolean): void {
+    this.practiceMode = on;
   }
 
   reset(): void {
@@ -147,7 +152,8 @@ export class AIInput implements InputSource {
     const distToShuttle = this.dist(me.pos, shuttle.pos);
     const inReach = mineToReturn && distToShuttle < SWING_REACH && shuttle.z <= SWING_REACH_Z;
     const swing = inReach && me.swingCooldown === 0 && !this.fumbleThisShuttle;
-    const stroke = swing ? this.pickStroke(me.pos, shuttle.z, shuttle.pos, opp.pos, state.momentum) : 'drive';
+    // Practice mode: AI always lobs to give the human predictable balls to return.
+    const stroke = swing ? (this.practiceMode ? 'lob' : this.pickStroke(me.pos, shuttle.z, shuttle.pos, opp.pos, state.momentum)) : 'drive';
 
     // Diving save: the ball is mine + incoming, just out of normal reach but within the
     // dive's extended reach, and I'm not already committed / too gassed. A reflex lunge

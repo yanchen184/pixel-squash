@@ -107,6 +107,9 @@ export type ShuttleState = {
 
 export type RallyPhase = 'serve' | 'rally' | 'point';
 
+/** Practice mode: no scoring, AI only lobs, landing arc preview always visible. */
+export type GameMode = 'match' | 'practice';
+
 export type GameState = {
   frame: number;
   p1: PlayerState;
@@ -132,6 +135,8 @@ export type GameState = {
   momentum: number;
   /** Number of successful hits in the current rally (resets to 0 on each point). */
   rallyHitCount: number;
+  /** Game mode — 'match' = normal scoring; 'practice' = no scoring, free rally. */
+  gameMode: GameMode;
 };
 
 // ---- Logic-space constants (deterministic) ----
@@ -258,6 +263,7 @@ export function createInitialState(): GameState {
       hitstop: 0,
       momentum: 0,
       rallyHitCount: 0,
+      gameMode: 'match',
     },
     0,
   );

@@ -1,11 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { CanvasRenderer, GAME_WIDTH, GAME_HEIGHT } from '@/game/render/CanvasRenderer';
 import type { Difficulty } from '@/game/input/AIInput';
+import type { GameMode } from '@/data/gameState';
 import { Hud } from './Hud';
 import { Controls, disposeControls } from './Controls';
 
 /** Match config for the greybox renderer (no court art manifest anymore). */
-export type MatchConfig = { difficulty: Difficulty };
+export type MatchConfig = { difficulty: Difficulty; gameMode?: GameMode };
 
 /**
  * Mounts the GREYBOX Canvas 2D renderer (Phaser removed). A single fixed-size

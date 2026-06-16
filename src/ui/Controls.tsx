@@ -1,5 +1,6 @@
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import { setTouchMove, setTouchSwing, setTouchDive, resetTouchIntent } from '@/game/input/touchControls';
+import { eventBus } from '@/game/eventBus';
 import type { StrokeId } from '@/data/strokes';
 
 /**
@@ -16,13 +17,59 @@ export function Controls() {
   // overlapping the court. matchMedia(coarse) is the standard touch test. SSR-safe.
   const isTouch =
     typeof window !== 'undefined' && (window.matchMedia?.('(pointer: coarse)').matches ?? false);
+  const [awaitingServe, setAwaitingServe] = useState(false);
+
+  useEffect(() => {
+    const off = eventBus.on('serve:awaiting', ({ waiting }) => setAwaitingServe(waiting));
+    const offReset = eventBus.on('sim:reset', () => setAwaitingServe(false));
+    return () => { off(); offReset(); };
+  }, []);
+
   if (!isTouch) return null;
   return (
     <>
-      <Joystick />
-      <DiveButton />
-      <StrokePad />
+      {awaitingServe
+        ? <ServeBoxPicker />
+        : (
+          <>
+            <Joystick />
+            <DiveButton />
+            <StrokePad />
+          </>
+        )
+      }
     </>
+  );
+}
+
+/** Touch-friendly serve box picker: two large buttons covering the lower-left and lower-right. */
+function ServeBoxPicker() {
+  return (
+    <div style={styles.servePickerWrap}>
+      <button
+        style={{ ...styles.serveBoxBtn, ...styles.serveBoxBtnLeft }}
+        onPointerDown={(e) => {
+          e.preventDefault();
+          // Simulate pressing 'A'/ArrowLeft which LocalInput maps to serveLeft.
+          window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA', bubbles: true }));
+        }}
+        onPointerUp={() => window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyA', bubbles: true }))}
+      >
+        <span style={styles.serveBoxIcon}>◀</span>
+        <span style={styles.serveBoxLabel}>左格發球</span>
+      </button>
+      <button
+        style={{ ...styles.serveBoxBtn, ...styles.serveBoxBtnRight }}
+        onPointerDown={(e) => {
+          e.preventDefault();
+          window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyD', bubbles: true }));
+        }}
+        onPointerUp={() => window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyD', bubbles: true }))}
+      >
+        <span style={styles.serveBoxIcon}>▶</span>
+        <span style={styles.serveBoxLabel}>右格發球</span>
+      </button>
+    </div>
   );
 }
 
@@ -252,4 +299,42 @@ const styles: Record<string, React.CSSProperties> = {
     pointerEvents: 'auto',
     touchAction: 'none',
   },
+  servePickerWrap: {
+    position: 'absolute',
+    bottom: 'calc(20px + env(safe-area-inset-bottom))',
+    left: 0,
+    right: 0,
+    display: 'flex',
+    gap: 16,
+    padding: '0 20px',
+    justifyContent: 'center',
+    pointerEvents: 'auto',
+    touchAction: 'none',
+  },
+  serveBoxBtn: {
+    flex: 1,
+    maxWidth: 220,
+    height: 100,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderRadius: 16,
+    border: '3px solid',
+    cursor: 'pointer',
+    transition: 'transform 0.06s',
+    touchAction: 'none',
+    boxShadow: '0 6px 20px rgba(0,0,0,0.5)',
+  },
+  serveBoxBtnLeft: {
+    background: 'radial-gradient(circle at 50% 35%, #d3e6ff 0%, #6a9ee0 55%, #3a6ab0 100%)',
+    borderColor: '#2a4a80',
+  },
+  serveBoxBtnRight: {
+    background: 'radial-gradient(circle at 50% 35%, #d3ffe8 0%, #5ae0a0 55%, #2ab068 100%)',
+    borderColor: '#1a7040',
+  },
+  serveBoxIcon: { fontSize: 32, color: '#fff' },
+  serveBoxLabel: { fontSize: 16, fontWeight: 700, color: '#fff' },
 };
