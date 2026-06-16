@@ -133,20 +133,21 @@ export class AIInput implements InputSource {
 
     if (this.reactCountdown > 0) {
       this.reactCountdown--;
-      return this.moveToward(me.pos, this.home(), false);
+      // Even during reaction delay, recover toward T rather than standing still.
+      return this.moveToward(me.pos, T_SPOT, false);
     }
 
     if (mineToReturn) {
       this.target = this.predictLanding(state);
     } else {
-      // Not my ball (I just hit it, or it's dead) — recover toward the T.
-      this.target = this.home();
+      // Not my ball — recover toward the T (centre-court control position).
+      this.target = T_SPOT;
     }
 
     const distToShuttle = this.dist(me.pos, shuttle.pos);
     const inReach = mineToReturn && distToShuttle < SWING_REACH && shuttle.z <= SWING_REACH_Z;
     const swing = inReach && me.swingCooldown === 0 && !this.fumbleThisShuttle;
-    const stroke = swing ? this.pickStroke(me.pos, shuttle.z, shuttle.pos, opp.pos) : 'drive';
+    const stroke = swing ? this.pickStroke(me.pos, shuttle.z, shuttle.pos, opp.pos, state.momentum) : 'drive';
 
     // Diving save: the ball is mine + incoming, just out of normal reach but within the
     // dive's extended reach, and I'm not already committed / too gassed. A reflex lunge
@@ -181,7 +182,7 @@ export class AIInput implements InputSource {
    * Physical fault gates (kill height, drop distance, boast angle) are checked first
    * so the AI never picks a shot that's guaranteed to misfire.
    */
-  private pickStroke(pos: Vec2, z: number, ballPos: Vec2, oppPos: Vec2): StrokeId {
+  private pickStroke(pos: Vec2, z: number, ballPos: Vec2, oppPos: Vec2, momentum = 0): StrokeId {
     // Mirror the sim's fault gates so the AI never picks a guaranteed misfire.
     const killFault = STROKES.kill.fault;
     const canKill = killFault?.kind === 'min-contact-z' ? z >= killFault.z : true;
@@ -207,6 +208,14 @@ export class AIInput implements InputSource {
 
     // --- Tactically triggered shots (opponent-aware, randomised so AI isn't robotic) ---
 
+    // Momentum rubber-band: when AI is leading (momentum < -2), play more conservatively
+    // with lobs; when losing badly (momentum > 2), push aggressive kills/drops.
+    const aggressive = momentum > 2;
+    const defensive = momentum < -2;
+
+    if (defensive && deep && this.rng() < 0.55) return 'lob'; // safe reset when winning comfortably
+    if (aggressive && canKill && nearFront && this.rng() < 0.65) return 'kill'; // attack when behind
+
     // Opponent deep + I'm near front → kill or drop to punish their over-run
     if (nearFront && oppDeep && canKill && this.rng() < 0.55) return 'kill';
     if (nearFront && oppDeep && this.rng() < 0.50) return 'drop';
@@ -218,8 +227,7 @@ export class AIInput implements InputSource {
     // Opponent up front → lob to drive them back to the service boxes
     if (oppFront && this.rng() < 0.55) return 'lob';
 
-    // Opponent on same side as ball → cross-court drive to the open side (aimX handled
-    // via faultBias=0; drive is the cross default when opp blocks the direct side)
+    // Opponent on same side as ball → cross-court drive to the open side
     if (oppSameSide && !deep && this.rng() < 0.35) return 'drive';
 
     // --- Positional fall-backs (ball+player position only) ---

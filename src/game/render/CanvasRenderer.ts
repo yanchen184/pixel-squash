@@ -136,6 +136,33 @@ type BallGhost = {
   z: number;
   age: number;
   life: number;
+  speed: number; // ball speed at capture time — drives trail style
+};
+
+/** A floating quality label (PERFECT! / GOOD!) above the hit point. */
+type QualityLabel = {
+  pos: Vec2;
+  z: number;
+  quality: SwingQuality;
+  age: number;
+  life: number;
+};
+
+/** A referee announcement text. */
+type RefAnnounce = {
+  text: string;
+  color: string;
+  age: number;
+  life: number;
+};
+
+/** A wall impact FX (colored per zone). */
+type WallImpactFX = {
+  x: number;
+  z: number;
+  age: number;
+  life: number;
+  kind: 'tin' | 'valid' | 'out';
 };
 
 export type RendererConfig = { difficulty: Difficulty };
@@ -156,12 +183,16 @@ export class CanvasRenderer {
   private wallPings: WallPing[] = [];
   private dustPuffs: DustPuff[] = [];
   private ballGhosts: BallGhost[] = [];
+  private qualityLabels: QualityLabel[] = [];
+  private refAnnouncements: RefAnnounce[] = [];
+  private wallImpactFX: WallImpactFX[] = [];
   private shake = 0;
   private prevJustHit = { p1: false, p2: false };
   private prevHitFrontWall = false;
   private ghostTimer = 0;
   private prevP1Vel: Vec2 = { x: 0, y: 0 };
   private prevP2Vel: Vec2 = { x: 0, y: 0 };
+  private prevRallyHitCount = 0;
 
   // HUD-diff caches.
   private lastScores: [number, number] = [0, 0];
@@ -229,6 +260,9 @@ export class CanvasRenderer {
     this.wallPings = [];
     this.dustPuffs = [];
     this.ballGhosts = [];
+    this.qualityLabels = [];
+    this.refAnnouncements = [];
+    this.wallImpactFX = [];
     this.shake = 0;
     this.prevJustHit = { p1: false, p2: false };
     this.prevHitFrontWall = false;
@@ -239,6 +273,7 @@ export class CanvasRenderer {
     this.prevLastWall = null;
     this.prevPhase = 'serve';
     this.faultFlash = null;
+    this.prevRallyHitCount = 0;
     eventBus.emit('sim:reset', undefined);
   }
 
@@ -261,8 +296,12 @@ export class CanvasRenderer {
         x: s.shuttle.pos.x,
         z: Math.max(TIN_HEIGHT, Math.min(FRONT_OUT_HEIGHT, s.shuttle.z)),
         age: 0,
-        life: 14, // shorter-lived but more intense (see drawWallPings)
+        life: 14,
       });
+      // Colored wall impact FX based on strike zone
+      const hitZ = s.shuttle.z;
+      const impactKind: WallImpactFX['kind'] = hitZ < TIN_HEIGHT ? 'tin' : hitZ > FRONT_OUT_HEIGHT ? 'out' : 'valid';
+      this.wallImpactFX.push({ x: s.shuttle.pos.x, z: s.shuttle.z, age: 0, life: 22, kind: impactKind });
       this.shake = Math.max(this.shake, 6);
       // Front wall ping sound
       const spd = Math.hypot(s.shuttle.vel.x, s.shuttle.vel.y);
@@ -282,20 +321,27 @@ export class CanvasRenderer {
     }
     this.prevBouncesSinceWall = s.shuttle.bouncesSinceWall;
 
-    // Point ended — play tin / out / point scored sound + trigger fault flash
+    // Point ended — play tin / out / point scored sound + trigger fault flash + referee text
     if (s.phase === 'point' && this.prevPhase === 'rally') {
       const reason = s.shuttle.deadReason;
       if (reason === 'tin') {
         SoundEngine.get().tinHit();
         this.faultFlash = { kind: 'tin', age: 0, life: 24 };
+        this.refAnnouncements.push({ text: '下網！', color: '#ff4040', age: 0, life: 120 });
       } else if (reason === 'out') {
         SoundEngine.get().outCall();
         this.faultFlash = { kind: 'out', age: 0, life: 24 };
+        this.refAnnouncements.push({ text: '出界！', color: '#e8a040', age: 0, life: 120 });
+      } else if (reason === 'double-bounce') {
+        this.refAnnouncements.push({ text: '二次落地！', color: '#40c8a0', age: 0, life: 120 });
       }
     }
     if (s.scores[0] !== this.lastScores[0] || s.scores[1] !== this.lastScores[1]) {
       const scorer = s.scores[0] > this.lastScores[0] ? 0 : 1;
       SoundEngine.get().pointScored(scorer as 0 | 1);
+      const name = scorer === 0 ? '你得分！' : 'CPU 得分';
+      const col = scorer === 0 ? '#5ec8f0' : '#f07080';
+      this.refAnnouncements.push({ text: name, color: col, age: 0, life: 90 });
     }
     if (s.winner !== null && s.winner !== this.lastWinner) {
       SoundEngine.get().matchWon(s.winner as 0 | 1);
@@ -309,9 +355,14 @@ export class CanvasRenderer {
         this.ghostTimer = 0;
         const sp = Math.hypot(s.shuttle.vel.x, s.shuttle.vel.y);
         if (sp > 1.0) {
-          this.ballGhosts.push({ pos: { ...s.shuttle.pos }, z: s.shuttle.z, age: 0, life: 10 });
+          this.ballGhosts.push({ pos: { ...s.shuttle.pos }, z: s.shuttle.z, age: 0, life: 10, speed: sp });
         }
       }
+    }
+
+    // Track rally hit count for quality label spawning
+    if (s.rallyHitCount !== this.prevRallyHitCount) {
+      this.prevRallyHitCount = s.rallyHitCount;
     }
 
     // Foot-skid dust: spawn when a player changes direction sharply (diving or skidding).
@@ -328,6 +379,9 @@ export class CanvasRenderer {
     this.wallPings = this.wallPings.map((w) => ({ ...w, age: w.age + 1 })).filter((w) => w.age < w.life);
     this.dustPuffs = this.dustPuffs.map((d) => ({ ...d, age: d.age + 1 })).filter((d) => d.age < d.life);
     this.ballGhosts = this.ballGhosts.map((g) => ({ ...g, age: g.age + 1 })).filter((g) => g.age < g.life);
+    this.qualityLabels = this.qualityLabels.map((q) => ({ ...q, age: q.age + 1 })).filter((q) => q.age < q.life);
+    this.refAnnouncements = this.refAnnouncements.map((r) => ({ ...r, age: r.age + 1 })).filter((r) => r.age < r.life);
+    this.wallImpactFX = this.wallImpactFX.map((w) => ({ ...w, age: w.age + 1 })).filter((w) => w.age < w.life);
 
     this.shake *= 0.80;
     if (this.shake < 0.3) this.shake = 0;
@@ -338,6 +392,10 @@ export class CanvasRenderer {
     if (pl.justHit && !wasHit) {
       const quality = pl.lastQuality ?? 'good';
       this.bursts.push({ pos: { ...s.shuttle.pos }, z: s.shuttle.z, quality, age: 0, life: 18 });
+      // Quality floating label (only for good+ hits to avoid spam)
+      if (quality === 'perfect' || quality === 'good') {
+        this.qualityLabels.push({ pos: { ...s.shuttle.pos }, z: s.shuttle.z + 30, quality, age: 0, life: 40 });
+      }
       const kick = quality === 'perfect' ? 10 : quality === 'good' ? 6 : 2;
       this.shake = Math.max(this.shake, kick);
       SoundEngine.get().racketHit(quality);
@@ -409,6 +467,8 @@ export class CanvasRenderer {
     this.drawBallGhosts();
     this.drawShuttle(s.shuttle, s.phase);
     this.drawBursts();
+    this.drawWallImpactFX();
+    this.drawQualityLabels();
 
     // Foreground glass layer — drawn last so it sits IN FRONT of the actors,
     // sandwiching them between the solid back walls and the glass gallery.
@@ -426,6 +486,9 @@ export class CanvasRenderer {
       ctx.fillStyle = `rgba(255,255,255,${0.07 * s.hitstop})`;
       ctx.fillRect(-40, -40, GAME_WIDTH + 80, GAME_HEIGHT + 80);
     }
+
+    // Referee announcements overlay (on top of everything except vignette)
+    this.drawRefAnnouncements();
 
     this.drawVignette();
     ctx.restore();
@@ -573,27 +636,49 @@ export class CanvasRenderer {
     ctx.fillStyle = floorGrad;
     ctx.fill();
 
-    // Service area tint.
-    this.fillFloorBand(SERVE_LINE_Y, depth, 'rgba(30,60,50,0.30)');
+    // Service area tint — two boxes with slightly different tint
+    const midX = COURT.width / 2;
+    this.fillFloorBand(SERVE_LINE_Y, depth, 'rgba(30,60,50,0.20)');
+    // Left service box lighter
+    this.fillFloorQuad(
+      { x: 0, y: SERVE_LINE_Y }, { x: midX, y: SERVE_LINE_Y },
+      { x: midX, y: depth }, { x: 0, y: depth },
+      'rgba(60,160,100,0.08)',
+    );
+    // Right service box slightly different
+    this.fillFloorQuad(
+      { x: midX, y: SERVE_LINE_Y }, { x: COURT.width, y: SERVE_LINE_Y },
+      { x: COURT.width, y: depth }, { x: midX, y: depth },
+      'rgba(80,130,160,0.08)',
+    );
 
-    // Glow effect under the short service line.
+    // Glow effect under the short service line — brighter.
     const slA = this.pt(0, SERVE_LINE_Y);
     const slB = this.pt(width, SERVE_LINE_Y);
     ctx.save();
-    ctx.strokeStyle = COL.lineGlow;
-    ctx.lineWidth = 8;
+    ctx.shadowColor = 'rgba(80,220,160,0.6)';
+    ctx.shadowBlur = 14;
+    ctx.strokeStyle = 'rgba(100,255,180,0.5)';
+    ctx.lineWidth = 6;
     ctx.beginPath();
     ctx.moveTo(slA.x, slA.y);
     ctx.lineTo(slB.x, slB.y);
     ctx.stroke();
     ctx.restore();
 
-    // Court lines — glowing white-green.
+    // Court boundary lines
     this.setGlowLine(COL.line, COL.lineGlow, 3, 8);
     this.strokePoly([tl, tr, br, bl, tl]);
+    this.clearGlow();
+    // Service box lines — brighter than boundary
+    this.setGlowLine('rgba(140,240,180,0.95)', 'rgba(80,220,140,0.55)', 3, 10);
     this.strokeLogicLine({ x: 0, y: SERVE_LINE_Y }, { x: COURT.width, y: SERVE_LINE_Y });
     this.strokeLogicLine({ x: COURT.width / 2, y: SERVE_LINE_Y }, { x: COURT.width / 2, y: depth });
     this.clearGlow();
+  }
+
+  private fillFloorQuad(a: Vec2, b: Vec2, c: Vec2, d: Vec2, color: string): void {
+    this.fillQuad(this.pt(a.x, a.y), this.pt(b.x, b.y), this.pt(c.x, c.y), this.pt(d.x, d.y), color);
   }
 
   private fillFloorBand(y0: number, y1: number, color: string): void {
@@ -652,10 +737,18 @@ export class CanvasRenderer {
     this.strokeWallLine(FRONT_SERVICE_LINE_Z);
     this.clearGlow();
 
-    // Out line (top boundary) — amber.
-    this.setGlowLine(COL.outLine, COL.outLineGlow, 4, 10);
+    // Out line (top boundary) — amber, thicker + stronger glow (task #14).
+    this.setGlowLine(COL.outLine, COL.outLineGlow, 6, 18);
     this.strokeWallLine(FRONT_OUT_HEIGHT);
     this.clearGlow();
+    // Out zone fill above the out line — subtle amber tint so the forbidden area is obvious
+    this.fillQuad(
+      this.pt(0, 0, FRONT_OUT_HEIGHT),
+      this.pt(COURT.width, 0, FRONT_OUT_HEIGHT),
+      this.pt(COURT.width, 0, WALL_HEIGHT),
+      this.pt(0, 0, WALL_HEIGHT),
+      'rgba(200,120,0,0.12)',
+    );
   }
 
   /** Stroke a horizontal line across the front wall at logic height z. */
@@ -1166,24 +1259,53 @@ export class CanvasRenderer {
     ctx.fill();
   }
 
-  /** Ball ghost trail — amber glow circles with optional sprite overlay for fast movement. */
+  /** Ball ghost trail — style varies by speed: kill=streak, lob=wide circle, drive=medium. */
   private drawBallGhosts(): void {
     const ctx = this.ctx;
     for (const g of this.ballGhosts) {
       const t = g.age / g.life;
       const p = this.pt(g.pos.x, g.pos.y, g.z);
       const scale = this.proj.depthScale(g.pos.y);
-      const r = (6 + Math.min(1, g.z / 200) * 2.5) * scale;
-      const alpha = Math.pow(1 - t, 1.1) * 0.72;
+      const sp = g.speed;
+
+      // Speed classification: kill >18, drive 8–18, lob <8
+      const isKill = sp > 18;
+      const isLob = sp < 8;
+
+      const r = (isKill ? 4 : isLob ? 9 : 6) * scale * (1 - t * 0.45);
+      const alpha = Math.pow(1 - t, isKill ? 1.6 : 1.1) * (isKill ? 0.9 : 0.65);
+
       ctx.save();
       ctx.globalAlpha = alpha;
-      // Tint older ghosts cooler (amber→orange) to create a warm-to-hot gradient feel.
-      ctx.shadowColor = t < 0.5 ? '#ffa030' : '#ff6018';
-      ctx.shadowBlur = 12 * (1 - t);
-      ctx.fillStyle = t < 0.4 ? COL.shuttle : COL.shuttleEdge;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, r * (1 - t * 0.40), 0, Math.PI * 2);
-      ctx.fill();
+
+      if (isKill) {
+        // Fast kill: flat elongated streak, hot orange/white
+        ctx.shadowColor = '#ffffff';
+        ctx.shadowBlur = 6 * (1 - t);
+        ctx.fillStyle = t < 0.3 ? '#ffffff' : '#ffaa30';
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y, r * 1.8, r * 0.55, 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (isLob) {
+        // Slow lob: full circle, cooler cyan-amber
+        ctx.shadowColor = '#60d8ff';
+        ctx.shadowBlur = 10 * (1 - t);
+        ctx.strokeStyle = withAlpha('#80e8ff', (1 - t) * 0.8);
+        ctx.lineWidth = 1.5 * scale;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = withAlpha(COL.shuttle, alpha * 0.4);
+        ctx.fill();
+      } else {
+        // Drive: medium amber glow
+        ctx.shadowColor = t < 0.5 ? '#ffa030' : '#ff6018';
+        ctx.shadowBlur = 12 * (1 - t);
+        ctx.fillStyle = t < 0.4 ? COL.shuttle : COL.shuttleEdge;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.restore();
     }
   }
@@ -1196,25 +1318,37 @@ export class CanvasRenderer {
     const scale = this.proj.depthScale(sh.pos.y);
     const r = (7 + Math.min(1, sh.z / 200) * 2.5) * scale;
 
-    // Speed trail — procedural gradient line; wider + brighter at high speed.
+    // Speed trail — style depends on shot type: kill=white streak, lob=wide arc, drive=amber
     const sp = Math.hypot(sh.vel.x, sh.vel.y);
+    const isKill = sp > 18;
+    const isLob = sp < 8;
     if (sp > 0.6) {
       const ang = Math.atan2(sh.vel.y, sh.vel.x) + Math.PI;
-      const trailLen = Math.min(sp * 1.3, 60) * scale;
+      const trailLen = Math.min(sp * (isKill ? 1.8 : 1.3), isKill ? 90 : 60) * scale;
       const speedT = Math.min(1, sp / 22);
       const grd = ctx.createLinearGradient(
         body.x, body.y,
         body.x + Math.cos(ang) * trailLen,
         body.y + Math.sin(ang) * trailLen,
       );
-      grd.addColorStop(0, `rgba(255,200,60,${0.75 + speedT * 0.20})`);
-      grd.addColorStop(0.4, `rgba(255,120,20,${0.45 + speedT * 0.20})`);
-      grd.addColorStop(1, 'rgba(255,80,0,0)');
+      if (isKill) {
+        grd.addColorStop(0, `rgba(255,255,220,${0.95})`);
+        grd.addColorStop(0.25, `rgba(255,180,40,${0.8})`);
+        grd.addColorStop(1, 'rgba(255,80,0,0)');
+      } else if (isLob) {
+        grd.addColorStop(0, `rgba(200,240,255,${0.6})`);
+        grd.addColorStop(0.5, `rgba(100,200,240,${0.3})`);
+        grd.addColorStop(1, 'rgba(80,160,200,0)');
+      } else {
+        grd.addColorStop(0, `rgba(255,200,60,${0.75 + speedT * 0.20})`);
+        grd.addColorStop(0.4, `rgba(255,120,20,${0.45 + speedT * 0.20})`);
+        grd.addColorStop(1, 'rgba(255,80,0,0)');
+      }
       ctx.save();
-      ctx.shadowColor = '#ff5010';
-      ctx.shadowBlur = (10 + speedT * 14) * Math.min(1, sp / 16);
+      ctx.shadowColor = isKill ? '#ffffff' : isLob ? '#80d0ff' : '#ff5010';
+      ctx.shadowBlur = (isKill ? 18 : 10 + speedT * 14) * Math.min(1, sp / 16);
       ctx.strokeStyle = grd;
-      ctx.lineWidth = r * (2.2 + speedT * 1.2);
+      ctx.lineWidth = r * (isKill ? 1.4 : 2.2 + speedT * 1.2);
       ctx.lineCap = 'round';
       ctx.beginPath();
       ctx.moveTo(body.x, body.y);
@@ -1249,6 +1383,85 @@ export class CanvasRenderer {
     ctx.stroke();
   }
 
+  /** Colored wall impact FX — tin=red, valid=white/orange, out=purple. (task #26) */
+  private drawWallImpactFX(): void {
+    const ctx = this.ctx;
+    for (const w of this.wallImpactFX) {
+      const t = w.age / w.life;
+      const p = this.pt(w.x, 0, Math.max(0, Math.min(WALL_HEIGHT, w.z)));
+      const depSc = this.proj.depthScale(0);
+      const colorMap = { tin: '#ff3030', valid: '#ffe88a', out: '#c060ff' };
+      const glowMap  = { tin: '#ff0000', valid: '#ffaa00', out: '#8040ff' };
+      const color = colorMap[w.kind];
+      const glow  = glowMap[w.kind];
+      const r = (30 + t * 50) * depSc;
+      ctx.save();
+      ctx.globalAlpha = Math.pow(1 - t, 1.3) * 0.9;
+      ctx.shadowColor = glow;
+      ctx.shadowBlur = 22 * (1 - t);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = (6 - t * 4) * depSc;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      if (t < 0.35) {
+        ctx.globalAlpha = (0.35 - t) / 0.35 * 0.7;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r * 0.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
+  /** Floating PERFECT!/GOOD! quality labels above hit point. (task #27) */
+  private drawQualityLabels(): void {
+    const ctx = this.ctx;
+    for (const q of this.qualityLabels) {
+      const t = q.age / q.life;
+      const rise = t * 28; // float upward
+      const p = this.pt(q.pos.x, q.pos.y, q.z + rise);
+      const alpha = t < 0.5 ? 1 : 1 - (t - 0.5) / 0.5;
+      const text = q.quality === 'perfect' ? 'PERFECT!' : 'GOOD!';
+      const color = q.quality === 'perfect' ? '#ffd060' : '#80ffb0';
+      const size = q.quality === 'perfect' ? 20 : 16;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.font = `bold ${size}px "Segoe UI", system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 12;
+      ctx.fillStyle = color;
+      ctx.fillText(text, p.x, p.y);
+      ctx.restore();
+    }
+  }
+
+  /** Referee text announcements at screen centre. (task #22) */
+  private drawRefAnnouncements(): void {
+    if (this.refAnnouncements.length === 0) return;
+    const ctx = this.ctx;
+    // Show only the most recent one
+    const ann = this.refAnnouncements[this.refAnnouncements.length - 1];
+    const t = ann.age / ann.life;
+    const alpha = t < 0.15 ? t / 0.15 : t > 0.7 ? 1 - (t - 0.7) / 0.3 : 1;
+    const scale = t < 0.15 ? 0.6 + (t / 0.15) * 0.4 : 1;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(GAME_WIDTH / 2, GAME_HEIGHT * 0.42);
+    ctx.scale(scale, scale);
+    ctx.font = `bold 36px "Segoe UI", system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = ann.color;
+    ctx.shadowBlur = 24;
+    ctx.fillStyle = ann.color;
+    ctx.fillText(ann.text, 0, 0);
+    ctx.restore();
+  }
+
   private drawBursts(): void {
     const ctx = this.ctx;
     for (const b of this.bursts) {
@@ -1280,29 +1493,83 @@ export class CanvasRenderer {
 
   /** Radial vignette to darken the screen edges, giving focus to centre court. */
   /** serveBox null = waiting for choice; 0/1 = box confirmed, showing ready countdown. */
+  /** Serve choice overlay — task #15: more prominent, pulsing border. */
   private drawServeChoiceOverlay(serveBox: 0 | 1 | null): void {
     const ctx = this.ctx;
     const cx = GAME_WIDTH / 2;
     const cy = GAME_HEIGHT * 0.78;
     ctx.save();
-    const pw = 420; const ph = 64;
     const isReady = serveBox !== null;
-    ctx.fillStyle = isReady ? 'rgba(8,26,14,0.88)' : 'rgba(8,14,26,0.82)';
-    ctx.beginPath();
-    ctx.roundRect(cx - pw / 2, cy - ph / 2, pw, ph, 10);
-    ctx.fill();
-    ctx.strokeStyle = isReady ? 'rgba(80,220,120,0.7)' : 'rgba(56,200,160,0.5)';
-    ctx.lineWidth = isReady ? 2 : 1.5;
-    ctx.stroke();
-    ctx.fillStyle = isReady ? '#a0f0c0' : '#c8dce8';
-    ctx.font = `bold 18px "Segoe UI", system-ui, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    if (isReady) {
-      const boxLabel = serveBox === 0 ? '左框' : '右框';
-      ctx.fillText(`✓ ${boxLabel}發球 — 準備中…`, cx, cy);
+
+    if (!isReady) {
+      // Pulsing glow background
+      const pulse = 0.5 + Math.sin(Date.now() * 0.006) * 0.3;
+
+      // Left box button
+      const lbx = cx - 120; const bw = 110; const bh = 58;
+      const lby = cy - bh / 2;
+      ctx.shadowColor = 'rgba(56,200,160,0.8)';
+      ctx.shadowBlur = 12 * pulse;
+      ctx.fillStyle = 'rgba(8,24,20,0.92)';
+      ctx.beginPath();
+      ctx.roundRect(lbx, lby, bw, bh, 8);
+      ctx.fill();
+      ctx.strokeStyle = `rgba(56,200,160,${0.5 + pulse * 0.4})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#a0f8d8';
+      ctx.font = `bold 13px "Segoe UI", system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('← 左框發球', lbx + bw / 2, cy - 10);
+      ctx.fillStyle = 'rgba(160,240,200,0.55)';
+      ctx.font = `11px "Segoe UI", system-ui, sans-serif`;
+      ctx.fillText('[A / ←]', lbx + bw / 2, cy + 12);
+
+      // Right box button
+      const rbx = cx + 10;
+      ctx.shadowColor = 'rgba(56,200,160,0.8)';
+      ctx.shadowBlur = 12 * pulse;
+      ctx.fillStyle = 'rgba(8,20,28,0.92)';
+      ctx.beginPath();
+      ctx.roundRect(rbx, lby, bw, bh, 8);
+      ctx.fill();
+      ctx.strokeStyle = `rgba(56,200,160,${0.5 + pulse * 0.4})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#a0f8d8';
+      ctx.font = `bold 13px "Segoe UI", system-ui, sans-serif`;
+      ctx.fillText('右框發球 →', rbx + bw / 2, cy - 10);
+      ctx.fillStyle = 'rgba(160,240,200,0.55)';
+      ctx.font = `11px "Segoe UI", system-ui, sans-serif`;
+      ctx.fillText('[D / →]', rbx + bw / 2, cy + 12);
+
+      // Label above
+      ctx.fillStyle = 'rgba(180,220,210,0.75)';
+      ctx.font = `12px "Segoe UI", system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText('選擇發球格', cx, cy - bh / 2 - 10);
     } else {
-      ctx.fillText('← 選左框發球    右框發球 →', cx, cy);
+      // Ready countdown
+      const pw = 280; const ph = 52;
+      ctx.fillStyle = 'rgba(8,26,14,0.92)';
+      ctx.shadowColor = 'rgba(80,220,120,0.6)';
+      ctx.shadowBlur = 16;
+      ctx.beginPath();
+      ctx.roundRect(cx - pw / 2, cy - ph / 2, pw, ph, 10);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = 'rgba(80,220,120,0.8)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = '#a0f0c0';
+      ctx.font = `bold 18px "Segoe UI", system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const boxLabel = serveBox === 0 ? '左框' : '右框';
+      ctx.fillText(`✓ ${boxLabel}  準備發球…`, cx, cy);
     }
     ctx.restore();
   }

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { eventBus } from '@/game/eventBus';
-import { POINTS_TO_WIN } from '@/data/gameState';
+import { POINTS_TO_WIN, WIN_BY } from '@/data/gameState';
 
 /** Returns true when the viewport is narrower than 520px. */
 function useNarrow(breakpoint = 520): boolean {
@@ -23,15 +23,28 @@ export function Hud({ onExit, onRestart }: { onExit: () => void; onRestart: () =
   const [scores, setScores] = useState<[number, number]>([0, 0]);
   const [stamina, setStamina] = useState({ p1: 100, p2: 100 });
   const [winner, setWinner] = useState<0 | 1 | null>(null);
+  // Flash state: which side just scored (drives bounce animation)
+  const [scoredSide, setScoredSide] = useState<0 | 1 | null>(null);
+  const prevScoresRef = useRef<[number, number]>([0, 0]);
   const narrow = useNarrow();
 
   useEffect(() => {
-    const offScore = eventBus.on('score:changed', ({ scores }) => setScores(scores));
+    const offScore = eventBus.on('score:changed', ({ scores: newScores }) => {
+      const prev = prevScoresRef.current;
+      if (newScores[0] > prev[0]) setScoredSide(0);
+      else if (newScores[1] > prev[1]) setScoredSide(1);
+      prevScoresRef.current = newScores;
+      setScores(newScores);
+      // Clear flash after animation
+      setTimeout(() => setScoredSide(null), 600);
+    });
     const offStam = eventBus.on('stamina:changed', setStamina);
     const offOver = eventBus.on('match:over', ({ winner }) => setWinner(winner));
     const offReset = eventBus.on('sim:reset', () => {
       setWinner(null);
       setScores([0, 0]);
+      prevScoresRef.current = [0, 0];
+      setScoredSide(null);
     });
     return () => { offScore(); offStam(); offOver(); offReset(); };
   }, []);
@@ -49,10 +62,24 @@ export function Hud({ onExit, onRestart }: { onExit: () => void; onRestart: () =
         <PlayerLabel name="YOU" score={scores[0]} stamina={stamina.p1} side="left" narrow={narrow} />
 
         <div style={narrow ? s.scoreStripNarrow : s.scoreStrip}>
-          <span style={narrow ? s.scoreYouNarrow : s.scoreYou}>{scores[0]}</span>
+          <span style={{
+            ...(narrow ? s.scoreYouNarrow : s.scoreYou),
+            ...(scoredSide === 0 ? s.scoreBounce : {}),
+            color: scoredSide === 0 ? '#ffd060' : undefined,
+          }}>{scores[0]}</span>
           <span style={s.scoreDash}>–</span>
-          <span style={narrow ? s.scoreCpuNarrow : s.scoreCpu}>{scores[1]}</span>
-          <span style={s.scoreTo}>/{POINTS_TO_WIN}</span>
+          <span style={{
+            ...(narrow ? s.scoreCpuNarrow : s.scoreCpu),
+            ...(scoredSide === 1 ? s.scoreBounce : {}),
+            color: scoredSide === 1 ? '#ffd060' : undefined,
+          }}>{scores[1]}</span>
+          {/* Deuce / advantage indicator */}
+          {scores[0] >= POINTS_TO_WIN - 1 && scores[1] >= POINTS_TO_WIN - 1 && Math.abs(scores[0] - scores[1]) < WIN_BY && (
+            <span style={s.deuceLabel}>
+              {scores[0] === scores[1] ? 'DEUCE' : scores[0] > scores[1] ? 'ADV YOU' : 'ADV CPU'}
+            </span>
+          )}
+          {!narrow && <span style={s.scoreTo}>/{POINTS_TO_WIN}</span>}
         </div>
 
         <PlayerLabel name="CPU" score={scores[1]} stamina={stamina.p2} side="right" narrow={narrow} />
@@ -141,6 +168,8 @@ function PlayerLabel({
   narrow: boolean;
 }) {
   const isLeft = side === 'left';
+  const lowStamina = stamina < 30;
+  const criticalStamina = stamina < 10;
   const staminaColor = stamina > 50 ? '#38c8a0' : stamina > 25 ? '#e8a840' : '#e04848';
   const labelStyle = narrow ? s.playerLabelNarrow : s.playerLabel;
   const trackStyle = narrow ? s.staminaTrackNarrow : s.staminaTrack;
@@ -152,7 +181,7 @@ function PlayerLabel({
         {/* Score hidden on narrow — centre strip already shows it */}
         {!narrow && <span style={s.playerScore}>{score}</span>}
       </div>
-      {/* Stamina bar */}
+      {/* Stamina bar — flashes when low */}
       <div style={{ ...trackStyle, direction: isLeft ? 'ltr' : 'rtl' }}>
         <div
           style={{
@@ -160,6 +189,7 @@ function PlayerLabel({
             width: `${stamina}%`,
             background: staminaColor,
             boxShadow: `0 0 6px ${staminaColor}88`,
+            animation: criticalStamina ? 'staminaFlash 0.3s ease-in-out infinite' : lowStamina ? 'staminaFlash 0.6s ease-in-out infinite' : 'none',
           }}
         />
       </div>
@@ -423,4 +453,43 @@ const s: Record<string, React.CSSProperties> = {
     borderRadius: 6,
     cursor: 'pointer',
   },
+
+  /* Score bounce animation — applied when a point is scored (task #31) */
+  scoreBounce: {
+    display: 'inline-block',
+    animation: 'scoreBounce 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97)',
+    transition: 'color 0.3s ease',
+  },
+
+  /* Deuce / advantage indicator */
+  deuceLabel: {
+    fontSize: 9,
+    fontWeight: 700,
+    color: '#ffd060',
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase' as const,
+    textShadow: '0 0 8px rgba(255,200,60,0.8)',
+    marginLeft: 6,
+    alignSelf: 'center' as const,
+  },
 };
+
+// CSS keyframe animations injected once.
+if (typeof document !== 'undefined' && !document.getElementById('hud-keyframes')) {
+  const style = document.createElement('style');
+  style.id = 'hud-keyframes';
+  style.textContent = `
+    @keyframes scoreBounce {
+      0%   { transform: scale(1); }
+      30%  { transform: scale(1.5); }
+      50%  { transform: scale(0.92); }
+      70%  { transform: scale(1.12); }
+      100% { transform: scale(1); }
+    }
+    @keyframes staminaFlash {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+  `;
+  document.head.appendChild(style);
+}

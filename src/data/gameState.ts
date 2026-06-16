@@ -130,6 +130,8 @@ export type GameState = {
   hitstop: number;
   /** Rally momentum for AI rubber-banding. Clamped to [-MOMENTUM_MAX, MOMENTUM_MAX]. */
   momentum: number;
+  /** Number of successful hits in the current rally (resets to 0 on each point). */
+  rallyHitCount: number;
 };
 
 // ---- Logic-space constants (deterministic) ----
@@ -255,6 +257,7 @@ export function createInitialState(): GameState {
       winner: null,
       hitstop: 0,
       momentum: 0,
+      rallyHitCount: 0,
     },
     0,
   );
@@ -295,6 +298,7 @@ export function resetForServe(state: GameState, server: Side): GameState {
     p1: { ...state.p1, pos: { ...makePlayer(0).pos }, facing: 'up', diveFrames: 0, diveDir: { x: 0, y: 0 }, diveRecovery: 0 },
     p2: { ...state.p2, pos: { ...makePlayer(1).pos }, facing: 'up', diveFrames: 0, diveDir: { x: 0, y: 0 }, diveRecovery: 0 },
     hitstop: 0,
+    rallyHitCount: 0,
     shuttle: {
       pos: { x: serverPlayer.pos.x, y: serverPlayer.pos.y },
       z: 110,

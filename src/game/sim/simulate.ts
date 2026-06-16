@@ -105,14 +105,18 @@ export function step(state: GameState, inA: InputFrame, inB: InputFrame): GameSt
   let shuttle = stepBall(state.shuttle);
 
   let hitstop = 0;
-  const r1 = resolveSwing(p1, inA, shuttle, 0, p2);
+  const r1 = resolveSwing(p1, inA, shuttle, 0, p2, state.rallyHitCount);
   p1 = r1.player;
   shuttle = r1.shuttle;
   hitstop = Math.max(hitstop, r1.hitstop);
-  const r2 = resolveSwing(p2, inB, shuttle, 1, p1);
+  const r2 = resolveSwing(p2, inB, shuttle, 1, p1, state.rallyHitCount);
   p2 = r2.player;
   shuttle = r2.shuttle;
   hitstop = Math.max(hitstop, r2.hitstop);
+
+  // Track rally hit count: increment whenever a new hit happened this tick.
+  const hitThisTick = (r1.player.justHit || r2.player.justHit);
+  const rallyHitCount = hitThisTick ? state.rallyHitCount + 1 : state.rallyHitCount;
 
   // Wall bounces (and tin/out fault detection) come AFTER swings, so a fresh hit this
   // tick gets a clean trajectory before we test it against the walls.
@@ -122,10 +126,10 @@ export function step(state: GameState, inA: InputFrame, inB: InputFrame): GameSt
 
   // Scoring: a dead-ball reason was set this tick (tin/out/double-bounce/not-front-wall).
   if (shuttle.inPlay && shuttle.deadReason !== null) {
-    return scorePoint({ ...state, frame, p1, p2, shuttle, hitstop: 0 });
+    return scorePoint({ ...state, frame, p1, p2, shuttle, hitstop: 0, rallyHitCount });
   }
 
-  return { ...state, frame, p1, p2, shuttle, hitstop };
+  return { ...state, frame, p1, p2, shuttle, hitstop, rallyHitCount };
 }
 
 function movePlayer(pl: PlayerState, input: InputFrame, side: Side, shuttle: ShuttleState): PlayerState {
@@ -396,6 +400,7 @@ function resolveSwing(
   shuttle: ShuttleState,
   side: Side,
   _opponent: PlayerState,
+  rallyHitCount = 0,
 ): SwingResult {
   const swinging = input.swing;
   const strokeId = input.stroke;
@@ -474,7 +479,9 @@ function resolveSwing(
   const faultDt = input.timingAim ? dt : (input.faultBias ?? 0);
   const adjustedTarget = applyTimingFault(wallTarget, faultDt);
 
-  const launch = solveArcToWall(shuttle.pos, shuttle.z, adjustedTarget, stroke, power);
+  // Dynamic pace: after 8 hits the ball accelerates slightly each hit (tension).
+  const rallySpeedMod = rallyHitCount > 8 ? 1 - Math.min(0.18, (rallyHitCount - 8) * 0.03) : 1;
+  const launch = solveArcToWall(shuttle.pos, shuttle.z, adjustedTarget, stroke, power, rallySpeedMod);
   const hitstop = diving ? HITSTOP_WEAK : HITSTOP[quality];
 
   return {
@@ -616,6 +623,7 @@ function solveArcToWall(
   target: WallTarget,
   stroke: StrokeProfile,
   power = 1,
+  rallySpeedMod = 1,
 ): { vx: number; vy: number; vz: number } {
   // Target point in 3D the ball should pass through.
   let tx = target.x;
@@ -631,7 +639,7 @@ function solveArcToWall(
   // Flight time to the wall point: stroke band, scaled by global pace / stroke pace,
   // shortened by power (a perfect-timed shot flies flatter and faster).
   const tofRaw = clamp((stroke.tof[0] + stroke.tof[1]) / 2, stroke.tof[0], stroke.tof[1]);
-  let tof = (tofRaw * SHUTTLE_PACE * stroke.pace) / power;
+  let tof = (tofRaw * SHUTTLE_PACE * stroke.pace * rallySpeedMod) / power;
 
   const vx = dx / tof;
   const vy = dy / tof;
