@@ -24,8 +24,8 @@ export function App() {
   if (screen === 'menu') {
     return (
       <Center>
-        <h1 style={{ fontSize: 48, margin: 0 }}>🏸 Pixel Badminton</h1>
-        <p style={{ color: '#aaa' }}>像素羽球 · 挑戰電腦對手</p>
+        <h1 style={{ fontSize: 48, margin: 0 }}>🎾 Pixel Squash</h1>
+        <p style={{ color: '#aaa' }}>像素壁球 · 挑戰電腦對手</p>
         <button style={bigBtn} onClick={() => setScreen('howto')}>開始遊戲</button>
         <button style={ghostBtn} onClick={() => setScreen('howto')}>怎麼玩？</button>
       </Center>
@@ -71,7 +71,7 @@ function RotatePrompt() {
       <div style={{ fontSize: 64, animation: 'pbSpin 2.4s ease-in-out infinite' }}>📱</div>
       <h1 style={{ fontSize: 24, margin: 0 }}>請將手機橫放</h1>
       <p style={{ color: '#aaa', margin: 0, fontSize: 15, textAlign: 'center' }}>
-        像素羽球是橫向球場 🏸<br />轉成橫向以獲得最佳體驗
+        像素壁球是橫向球場 🎾<br />轉成橫向以獲得最佳體驗
       </p>
       <style>{'@keyframes pbSpin{0%,40%{transform:rotate(0)}60%,100%{transform:rotate(90deg)}}'}</style>
     </div>
@@ -100,10 +100,10 @@ function Center({ children }: { children: React.ReactNode }) {
 /**
  * How-to-play screen. Every line here mirrors the real control model in
  * game/input/LocalInput.ts + game/sim/simulate.ts — if controls change there, update
- * this too. The control model:
- *   1. 球種 = 你按哪顆鍵：J 殺、K 吊、L 抽、空白鍵 高遠。
- *   2. 揮拍「時機」決定強弱 + 左右落點（早=左、晚=右、剛好=正中最強）。
- *   3. 左手移動只負責跑位；球的遠近由球種本身決定。
+ * this too. The control model (SQUASH):
+ *   1. 球種 = 你按哪顆鍵：J 絕殺、K 放小球、L 直線抽、空白鍵 高吊。
+ *   2. 揮拍「時機」決定落點，也決定失誤：太早高過界(出界)、太晚打到掛板(tin)。
+ *   3. 兩人共用同一塊地板、沒有網；球一定要先打中前牆。球落地彈兩次就輸。
  */
 interface HowToProps {
   onContinue: () => void;
@@ -113,32 +113,33 @@ interface HowToProps {
 function HowTo({ onContinue, onBack }: HowToProps) {
   return (
     <div style={howtoWrap}>
-      <h1 style={{ fontSize: 30, margin: '0 0 4px' }}>怎麼玩 🏸</h1>
+      <h1 style={{ fontSize: 30, margin: '0 0 4px' }}>怎麼玩 🎾</h1>
       <p style={{ color: '#aaa', margin: 0, fontSize: 14 }}>
-        你在下方場區，把球打到對手場內落地就得分。先得 11 分獲勝。<br />
+        球一定要先打中<b>前牆</b>（上方紅帶），且要在掛板線以上、出界線以下。
+        逼對手回不到、球在地上彈第二下就得分。先得 11 分（差 2 分）獲勝。<br />
         <b>左手移動跑位、右手按球種鍵揮拍</b>。按哪顆鍵就打哪種球。
       </p>
 
       <Section title="移動（跑位）">
-        <Row k="W A S D ／ 方向鍵" v="跑位。先跑到球的落點圈附近，球才打得到。" />
+        <Row k="W A S D ／ 方向鍵" v="跑位。整塊地板都能跑（沒有網、沒有半場），先跑到球的落點圈附近才打得到。" />
         <Row k="手機" v="左下角搖桿移動，右下角四顆球種鍵揮拍。" />
       </Section>
 
       <Section title="球種 = 你按哪顆鍵（最重要）">
-        <Row k="J ＝ 殺球" v="往下殺到對手後場，最快。只有球夠高時才殺得出來（太低自動變高遠球）。" />
-        <Row k="K ＝ 吊球" v="輕吊網前小球。要靠近網子才吊得出來（離太遠自動變高遠球）。" />
-        <Row k="L ＝ 平抽" v="平快直線球，貼著網過去。任何時候都能打。" />
-        <Row k="空白鍵 ＝ 高遠球" v="安全的中後場深球（預設）。" />
+        <Row k="J ＝ 絕殺" v="貼著掛板上沿轟出去，最快最沉。只有球夠高才殺得出來（太低自動變直線抽）。" />
+        <Row k="K ＝ 放小球" v="輕碰前牆下緣的貼牆小球。要夠靠近前牆才放得出來（太遠自動變直線抽）。" />
+        <Row k="L ＝ 直線抽" v="貼著側牆的平快直線球。任何時候都能打，安全好用。" />
+        <Row k="空白鍵 ＝ 高吊" v="高高打上前牆，飄向後角的防守球（預設）。" />
       </Section>
 
-      <Section title="揮拍時機 = 強弱 + 左右落點">
+      <Section title="揮拍時機 = 落點 + 失誤">
         <Row k="球落到擊球高度的瞬間按" v="Perfect — 最快最準，落點最刁。" />
-        <Row k="揮太早" v="球往左飛。" />
-        <Row k="揮太晚" v="球往右飛。剛剛好則打正中。" />
+        <Row k="揮太早" v="打點太高 → 球飛過出界線，出界送分。" />
+        <Row k="揮太晚" v="打點太低 → 球打到掛板（tin），掛板送分。剛剛好才安全。" />
       </Section>
 
       <Section title="魚躍救球">
-        <Row k="Shift" v="撲救 — 飛撲擴大接球範圍，救遠球。但撲完會倒地、爬起來前不能動，耗體力。" />
+        <Row k="Shift" v="撲救 — 飛撲擴大接球範圍，救死角球。但撲完會倒地、爬起來前不能動，耗體力。" />
       </Section>
 
       <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>

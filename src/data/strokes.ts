@@ -1,44 +1,78 @@
-import { NET_HEIGHT, COURT, NET_Y, type Side, type Vec2 } from './gameState';
+import {
+  COURT,
+  WALL_HEIGHT,
+  TIN_HEIGHT,
+  FRONT_OUT_HEIGHT,
+  type Vec2,
+} from './gameState';
 
 /**
- * Stroke system — single source of truth for the five playable badminton shots.
+ * Stroke system — single source of truth for the six playable squash shots.
  *
- * Each stroke is a distinct *feel*: a clear floats safe and deep, a smash is a
- * fast flat kill, a drop dies just over the net, a drive is a quick body-line
- * push, and the serve opens the rally. The sim reads a stroke's profile to shape
- * the shuttle arc + landing + fault risk; the renderer reads `frames` to pick the
- * matching swing animation; input maps key combos to a StrokeId.
+ * Squash is a FRONT-WALL game: every legal shot must strike the front wall (plane
+ * y=0) between the tin (z=48) and the out line (z=456). A stroke is a distinct
+ * *feel* shaped by WHERE on the front wall it aims and HOW fast the ball flies:
  *
- * Determinism: every number here is fixed data. No Math.random — fault checks are
- * threshold tests on the shuttle's own state (height, distance), so replays match.
+ *   - drive : the bread-and-butter rail — strikes mid-low, comes back deep & straight.
+ *   - boast : an angled shot off a SIDE wall first, then to the front — defensive escape.
+ *   - lob   : floats HIGH on the front wall, loops to the back corners — the reset.
+ *   - drop  : feathers JUST above the tin, dies in the front corner — the touch shot.
+ *   - kill  : a flat hard low rail near the tin — the put-away (needs a high contact).
+ *   - serve : opens the rally, strikes mid-high, rebounds diagonally to the receiver.
+ *
+ * The sim reads a stroke's profile to shape the ball's launch toward a WallTarget +
+ * flight time + fault risk; the renderer reads `frames` for the swing animation;
+ * input maps key combos to a StrokeId.
+ *
+ * Determinism: every number is fixed data. No Math.random — fault checks are
+ * threshold tests on the ball's own state (height, distance, side proximity), so
+ * replays match byte-for-byte (Phase-2 netcode foundation).
  */
 
-export type StrokeId = 'clear' | 'smash' | 'drop' | 'drive' | 'serve';
+export type StrokeId = 'drive' | 'boast' | 'lob' | 'drop' | 'kill' | 'serve';
 
-/** A landing-target resolver: where in the opponent half this stroke aims. */
-export type AimKind = 'deep' | 'frontcourt' | 'net' | 'bodyline';
+/**
+ * A point the ball is aimed at to start its rebound.
+ *  - wall 'front': aim a point on the front wall plane (y=0) at horizontal x, height z.
+ *  - wall 'side' : aim a point on a SIDE wall (x = 0 or COURT.width) at depth sideY,
+ *    height z — used by the boast, which bounces off the side wall toward the front.
+ */
+export type WallTarget = {
+  readonly x: number;
+  readonly z: number;
+  readonly wall: 'front' | 'side';
+  readonly sideY?: number;
+};
+
+/** Where on the front wall (height band) this stroke naturally aims. */
+export type AimKind = 'low' | 'mid' | 'high' | 'tin' | 'angle';
 
 export interface StrokeProfile {
   readonly id: StrokeId;
   /** Display name (zh-TW) for UI / feedback. */
   readonly label: string;
-  /** Arc apex height in z. Higher = floatier & slower to land; lower = flat & fast. */
-  readonly apex: number;
-  /** Time-of-flight clamp [min,max] ticks. Smaller = faster shuttle. */
+  /**
+   * Natural front-wall strike HEIGHT in z. Higher on the wall = the rebound loops
+   * deeper & floatier; lower (near the tin) = a flat fast rail that dies short.
+   * For the boast this is the side-wall contact height.
+   */
+  readonly wallZ: number;
+  /** Time-of-flight clamp [min,max] ticks to reach the wall. Smaller = faster ball. */
   readonly tof: readonly [number, number];
   /**
    * Per-stroke pace multiplier on flight time — OVERRIDES the global SHUTTLE_PACE so
-   * each shot has its own signature speed (a smash rockets, a drop floats). <1 = faster
-   * than the global readable pace, >1 = slower/floatier. solveArc reads this.
+   * each shot has its own signature speed (a kill rockets, a lob floats). <1 = faster
+   * than the global readable pace, >1 = slower/floatier. solveArcToWall reads this.
    */
   readonly pace: number;
-  /** Where the shuttle is aimed in the opponent's half. */
+  /** Which front-wall height band this stroke aims at. */
   readonly aim: AimKind;
   /**
-   * Fault gate. The stroke only succeeds if the contact condition holds; otherwise
-   * it whiffs into the net (commitment penalty). null = always safe.
-   *   - smash needs the shuttle HIGH enough to hit down on it.
-   *   - drop needs the player CLOSE enough to the net to feather it.
+   * Fault gate. The stroke only succeeds if the contact condition holds; otherwise it
+   * misfires (dribbles, won't reach the front wall = striker loses). null = always safe.
+   *   - kill  needs the ball HIGH enough to hit down hard on it (min-contact-z).
+   *   - drop  needs the player CLOSE to the front wall to feather it (max-front-dist).
+   *   - boast needs the ball OFF to one side, near a side wall, to angle it (need-angle).
    */
   readonly fault: StrokeFault | null;
   /** Swing animation frame count (drives the sprite-sheet slicer + player). */
@@ -46,155 +80,190 @@ export interface StrokeProfile {
 }
 
 export type StrokeFault =
-  | { kind: 'min-contact-z'; z: number } // shuttle height must be >= z to succeed
-  | { kind: 'max-net-dist'; dist: number }; // player floor-distance to net must be <= dist
+  | { kind: 'min-contact-z'; z: number } // ball height must be >= z to succeed (kill)
+  | { kind: 'max-front-dist'; dist: number } // player distance to front wall must be <= dist (drop)
+  | { kind: 'need-angle'; maxX: number }; // ball must be within maxX of a side wall (boast)
 
 /**
- * The five profiles. Tuned against the existing arc math (GRAVITY=0.45,
- * NET_HEIGHT=70). `clear` deliberately mirrors the old single-arc behaviour so the
- * default stroke keeps the proven safe rally feel and existing tests pass.
+ * The six profiles. Tuned against the squash arc math (GRAVITY=0.42, tin z=48, out
+ * line z=456, wall height z=480). `drive` is the safe default rail — it strikes the
+ * front wall mid-low and returns deep & straight, the proven baseline the others
+ * deviate from. See PLAN.md §5 for the full stroke table.
  */
 export const STROKES: Record<StrokeId, StrokeProfile> = {
-  clear: {
-    id: 'clear',
-    label: '高遠球',
-    // Floats HIGH and slow, deep to the baseline — the safe reset. Highest apex of all
-    // four so its silhouette is unmistakably a tall lob next to the flat smash/drive.
-    apex: NET_HEIGHT + 70, // 140 — tallest, floatiest arc
-    tof: [24, 44],
-    pace: 1.0, // global readable pace — the calm baseline the others deviate from
-    aim: 'deep',
+  drive: {
+    id: 'drive',
+    label: '直線球',
+    // The RAIL: strikes the front wall a touch below mid, rebounds deep and straight
+    // down the side. The bread-and-butter shot — the calm baseline tempo everything
+    // else reads against.
+    wallZ: 144,
+    tof: [16, 26],
+    pace: 1.0, // global readable pace
+    aim: 'mid',
     fault: null,
     frames: 4,
   },
-  smash: {
-    id: 'smash',
-    label: '殺球',
-    // The KILL: lowest, flattest arc + fastest pace. It barely clears the tape then
-    // drives DOWN at the opponent's body. Distinct from everything else by being both
-    // the flattest (apex 75) AND the fastest (pace 0.6) — you SEE and FEEL the speed.
-    apex: NET_HEIGHT + 5, // 75 — almost flat, skims the tape
-    tof: [16, 24], // short flight…
-    pace: 0.6, // …and accelerated well past global pace → a true rocket
-    aim: 'bodyline', // handcuffs the receiver at their body
-    // Can only smash a ball that's still high; a low ball forces a clear instead.
-    fault: { kind: 'min-contact-z', z: 70 },
+  boast: {
+    id: 'boast',
+    label: '反角球',
+    // The ESCAPE: hits a SIDE wall first, then angles onto the front wall and dies in
+    // the opposite front corner. Slightly slower (the longer path), and only playable
+    // when the ball is trapped near a side wall — the defensive scramble out of a corner.
+    wallZ: 130,
+    tof: [22, 34],
+    pace: 1.1,
+    aim: 'angle',
+    // Needs the ball off to one side (within maxX of a side wall) to bank off it.
+    fault: { kind: 'need-angle', maxX: 220 },
     frames: 5,
+  },
+  lob: {
+    id: 'lob',
+    label: '高吊球',
+    // The RESET: floats HIGH on the front wall (just under the out line) and loops in a
+    // slow, tall arc to the back corners — buys time, the opposite tempo to a kill.
+    // Highest strike point of all six, comfortably below the out line so it stays in.
+    wallZ: 374,
+    tof: [30, 46],
+    pace: 1.25, // slowest, floatiest
+    aim: 'high',
+    fault: null,
+    frames: 4,
   },
   drop: {
     id: 'drop',
-    label: '切球',
-    // The FEATHER: floats just over the tape then dies in the forecourt. Slowest pace of
-    // all so it hangs and drops short — the opposite tempo to a smash, forcing the
-    // receiver to sprint forward. Apex high-ish but pace makes it crawl.
-    apex: NET_HEIGHT + 45, // 115 — lobs up then tumbles down at the net
-    tof: [40, 56], // long, lazy descent (clamped so the arc doesn't balloon)
-    pace: 1.15, // slowest of the four → floaty soft touch, but not a moon-shot
-    aim: 'net',
-    // Needs to be played from near the net; from deep court it tumbles into the tape.
-    fault: { kind: 'max-net-dist', dist: 200 },
+    label: '小球',
+    // The TOUCH: feathers JUST above the tin so it barely clears, then dies in the front
+    // corner. Forces the receiver to sprint forward. Played from near the front wall.
+    wallZ: 72, // a hair above the tin (48)
+    tof: [20, 30],
+    pace: 1.15, // soft, hangs and dies short
+    aim: 'low',
+    // Must be played from close to the front wall; from deep court it tumbles into the tin.
+    fault: { kind: 'max-front-dist', dist: 380 },
     frames: 5,
   },
-  drive: {
-    id: 'drive',
-    label: '平抽',
-    // The FLAT DRIVE: low and quick like a smash, but aimed FLAT to the deep corners
-    // (not down at the body) — a fast attacking rally ball. Faster than a clear, flatter
-    // arc, but cornered instead of body-line, so it reads different from the smash.
-    apex: NET_HEIGHT + 18, // 88 — low, flat
-    tof: [18, 28],
-    pace: 0.78, // quick, just shy of smash speed
-    aim: 'deep', // flat to the back corners, not the body
-    fault: null,
-    frames: 4,
+  kill: {
+    id: 'kill',
+    label: '殺球',
+    // The PUT-AWAY: a flat hard rail just above the tin, fastest of all. Barely clears
+    // the tin then skids low and dead — the winner. Can only be played on a HIGH ball
+    // (you must be above it to hit down), so a low ball forces a safe drive instead.
+    wallZ: 60, // hugs the tin (48) — highest risk, biggest reward
+    tof: [12, 20], // shortest flight…
+    pace: 0.6, // …and accelerated past global pace → a true rocket
+    aim: 'tin',
+    fault: { kind: 'min-contact-z', z: 70 },
+    frames: 5,
   },
   serve: {
     id: 'serve',
     label: '發球',
-    // Just clears the net then descends into the receiver's strike zone — a fair,
-    // returnable push, NOT a floaty deep ball that sails over the receiver's head.
-    apex: NET_HEIGHT + 25, // 95
-    tof: [24, 40],
+    // Opens the rally: strikes the front wall mid-high, rebounds in a fair arc that
+    // descends into the receiver's diagonal back quarter — returnable, not an ace bomb.
+    wallZ: 264,
+    tof: [26, 40],
     pace: 1.0,
-    aim: 'deep',
+    aim: 'mid',
     fault: null,
     frames: 6,
   },
 };
 
-/** Default stroke when no modifier key is held — the safe floaty clear. */
-export const DEFAULT_STROKE: StrokeId = 'clear';
+/** Default stroke when no modifier key is held — the safe straight drive. */
+export const DEFAULT_STROKE: StrokeId = 'drive';
 
 /**
- * Resolve a floor landing target for a stroke in the opponent's open court.
- * `side` is the HITTER's side.
+ * Resolve a front-wall (or side-wall, for a boast) aim point for a stroke.
  *
- * Placement is now PLAYER-DRIVEN (research #6): `aimX`/`aimY` are the held direction
- * at swing time (aimX: -1 left … +1 right across court; aimY: -1 toward net … +1
- * deep). `accuracy` (0..1, from swing timing) blends the player's chosen spot toward
- * the safe center as it drops — a mistimed swing can't be placed precisely. With no
- * aim held we fall back to the stroke's natural zone aimed away from the opponent,
- * so a new player who never touches the aim keys still gets sensible shots.
+ * Placement is PLAYER-DRIVEN: `aimX`/`aimY` are the held direction at swing time
+ * (aimX: -1 left … +1 right across the front wall; aimY: -1 low/tin … +1 high/out)
+ * and `accuracy` (0..1, from swing timing) blends the chosen point toward the safe
+ * centre as it degrades — a mistimed swing can't be placed precisely. With no aim
+ * held we fall back to the stroke's natural band, so a player who never touches the
+ * aim keys still gets sensible shots.
+ *
+ * The HEIGHT band is bounded to stay between the tin and the out line; the timing
+ * fault in the sim (applyTimingFault) is what pushes a mishit ABOVE the out line
+ * (OUT) or BELOW the tin (dead) — aimWallTarget itself always returns a legal point.
  */
-export function aimTargetForStroke(
-  aim: AimKind,
-  side: Side,
-  opponent: { pos: Vec2 },
+export function aimWallTarget(
+  stroke: StrokeProfile,
+  pos: Vec2,
   aimX = 0,
   aimY = 0,
   accuracy = 1,
-): Vec2 {
-  // The corners of the opponent's open court. Pushed RIGHT to the lines so a fully
-  // committed aim actually thumps the baseline / sideline — that's the "I hit the
-  // corner" payoff a timid 0.12/0.78 box never gave. The depth axis runs from just
-  // past the net (`front`) to the deep baseline (`deep`).
-  const deep = side === 0 ? COURT.depth * 0.04 : COURT.depth * 0.96; // hard on the baseline
-  const front = side === 0 ? NET_Y - 70 : NET_Y + 70; // just over the net
-  const mid = (deep + front) / 2;
-  const xEdgeL = COURT.width * 0.08; // hard on the left sideline
-  const xEdgeR = COURT.width * 0.92; // hard on the right sideline
+): WallTarget {
+  // The boast banks off a side wall first: pick the side wall the ball is nearest,
+  // aim a point on it partway to the front, at the stroke's contact height.
+  if (stroke.aim === 'angle') {
+    const nearLeft = pos.x < COURT.width / 2;
+    const sideX = nearLeft ? 0 : COURT.width;
+    // Bank point sits in the front third of the court depth so the rebound carries
+    // forward to the opposite front corner.
+    const sideY = clamp(COURT.depth * 0.32, 60, COURT.depth - 60);
+    const z = clampWallZ(stroke.wallZ);
+    return { x: sideX, z, wall: 'side', sideY };
+  }
+
+  // Horizontal placement across the front wall: aimX continuous in [-1,+1]. Interpolate
+  // from centre out toward whichever sideline the player pushes; a hard mistime thumps
+  // the corner, a slight one drifts gently. No aim → centre-biased natural rail.
   const centerX = COURT.width * 0.5;
-
-  // The stroke's natural depth zone (used when the player gives no vertical aim).
-  const naturalY =
-    aim === 'net' ? (side === 0 ? NET_Y - 30 : NET_Y + 30)
-    : aim === 'frontcourt' ? front
-    : aim === 'deep' || aim === 'bodyline' ? deep
-    : mid;
-
-  // Depth: aimY is CONTINUOUS in [-1,+1] (−1 = net, +1 = baseline). Interpolate from
-  // the stroke's natural zone toward whichever extreme the player is pushing, so a
-  // full pull lands ON the baseline and a partial pull lands partway — no 3-step snap.
-  const targetYExtreme = aimY < 0 ? front : deep;
-  let targetY = lerp(naturalY, targetYExtreme, Math.min(1, Math.abs(aimY)));
-
-  // Horizontal: aimX is CONTINUOUS in [-1,+1] from swing timing (−1 left … +1 right).
-  // Interpolate from center out to the sideline so a hard mistime thumps the edge and
-  // a slight one drifts gently — the placement is as fine as your timing. With no aim
-  // held (and a non-bodyline stroke) fall back to hitting away from the opponent.
-  const xAway = opponent.pos.x < COURT.width / 2 ? xEdgeR : xEdgeL;
+  const xEdgeL = COURT.width * 0.12;
+  const xEdgeR = COURT.width * 0.88;
   let targetX: number;
   if (aimX === 0) {
-    targetX = aim === 'bodyline' ? opponent.pos.x : xAway;
+    targetX = centerX;
   } else {
     const edge = aimX < 0 ? xEdgeL : xEdgeR;
     targetX = lerp(centerX, edge, Math.min(1, Math.abs(aimX)));
   }
 
-  // Accuracy blend: a mistimed swing drifts toward the safe center of the open court;
-  // a perfect swing (accuracy 1) lands exactly on the corner you aimed.
-  const centerY = (front + deep) / 2;
-  targetX = lerp(centerX, targetX, accuracy);
-  targetY = lerp(centerY, targetY, accuracy);
+  // Vertical placement on the front wall: start at the stroke's natural band, then let
+  // aimY nudge it within the LEGAL window (tin..out). aimY −1 pulls toward the tin
+  // (low/attacking), +1 pushes toward the out line (high/defensive). Stays in-bounds —
+  // going OUT/below-tin is the job of the timing fault, not deliberate aim.
+  const naturalZ = clampWallZ(stroke.wallZ);
+  let targetZ: number;
+  if (aimY === 0) {
+    targetZ = naturalZ;
+  } else {
+    const zExtreme = aimY < 0 ? TIN_HEIGHT + 24 : FRONT_OUT_HEIGHT - 24;
+    targetZ = lerp(naturalZ, zExtreme, Math.min(1, Math.abs(aimY)));
+  }
 
-  return { x: targetX, y: targetY };
+  // Accuracy blend: a mistimed swing drifts toward the safe centre of the front wall
+  // (centre-x, mid height); a perfect swing lands exactly on the point you aimed.
+  const safeZ = (TIN_HEIGHT + FRONT_OUT_HEIGHT) / 2;
+  targetX = lerp(centerX, targetX, accuracy);
+  targetZ = lerp(safeZ, targetZ, accuracy);
+
+  return { x: targetX, z: clampWallZ(targetZ), wall: 'front' };
+}
+
+/** Clamp a front-wall strike height into the legal tin..out window (with a margin). */
+function clampWallZ(z: number): number {
+  return clamp(z, TIN_HEIGHT + 8, FRONT_OUT_HEIGHT - 8);
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return v < lo ? lo : v > hi ? hi : v;
 }
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
-/** Distance from a player to the net plane (used by drop's fault gate). */
-export function distToNet(pos: Vec2): number {
-  return Math.abs(pos.y - NET_Y);
+/**
+ * Distance from a player to the front wall plane (y=0). Used by the drop's fault gate
+ * (you can only feather a drop from near the front) and by AI shot selection.
+ */
+export function distToFrontWall(pos: Vec2): number {
+  return Math.abs(pos.y);
 }
+
+// WALL_HEIGHT is part of the squash court contract; re-reference it so the import is
+// always meaningful even though strokes clamp to the out line rather than the ceiling.
+export const MAX_WALL_Z = WALL_HEIGHT;

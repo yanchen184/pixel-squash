@@ -100,12 +100,13 @@ function Joystick() {
   );
 }
 
-/** The four strokes, laid out as a 2×2 pad. Each button fires that shot (swing edge). */
+/** The five squash strokes. Each button fires that shot (swing edge). */
 const STROKE_BTNS: ReadonlyArray<{ id: StrokeId; label: string; sub: string; bg: string }> = [
-  { id: 'smash', label: '殺', sub: 'J', bg: 'radial-gradient(circle at 50% 35%, #ffd3d3 0%, #ff8a8a 55%, #e04d4d 100%)' },
-  { id: 'drop', label: '吊', sub: 'K', bg: 'radial-gradient(circle at 50% 35%, #d8f3e0 0%, #8ce0a8 55%, #4daf6e 100%)' },
-  { id: 'drive', label: '抽', sub: 'L', bg: 'radial-gradient(circle at 50% 35%, #d3e6ff 0%, #8ab6ff 55%, #4d7fe0 100%)' },
-  { id: 'clear', label: '高', sub: '空', bg: 'radial-gradient(circle at 50% 35%, #fff0f4 0%, #f6c7d6 55%, #e08aa6 100%)' },
+  { id: 'kill', label: '殺', sub: 'J', bg: 'radial-gradient(circle at 50% 35%, #ffd3d3 0%, #ff8a8a 55%, #e04d4d 100%)' },
+  { id: 'drop', label: '小', sub: 'K', bg: 'radial-gradient(circle at 50% 35%, #d8f3e0 0%, #8ce0a8 55%, #4daf6e 100%)' },
+  { id: 'drive', label: '直', sub: 'L', bg: 'radial-gradient(circle at 50% 35%, #d3e6ff 0%, #8ab6ff 55%, #4d7fe0 100%)' },
+  { id: 'boast', label: '角', sub: 'U', bg: 'radial-gradient(circle at 50% 35%, #f5e2c0 0%, #e6c084 55%, #c79338 100%)' },
+  { id: 'lob', label: '高', sub: '空', bg: 'radial-gradient(circle at 50% 35%, #fff0f4 0%, #f6c7d6 55%, #e08aa6 100%)' },
 ];
 
 /** A single stroke button: pressing it sets the swing intent + which stroke to play. */

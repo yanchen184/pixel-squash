@@ -51,6 +51,12 @@ export type InputFrame = {
    */
   dive: boolean;
   /**
+   * Service box choice, only meaningful during awaitingServeChoice phase.
+   * serveLeft = choose left box (0), serveRight = choose right box (1).
+   */
+  serveLeft: boolean;
+  serveRight: boolean;
+  /**
    * AI-only unforced error on THIS swing. The human faults from real swing timing
    * (`timingAim`); the AI has no timing, so it injects a SYNTHETIC mistime here to
    * earn the same out-of-bounds / net faults a human risks. Sign + magnitude mirror a
@@ -63,7 +69,7 @@ export type InputFrame = {
   faultBias?: number;
 };
 
-export const NO_INPUT: InputFrame = { moveX: 0, moveY: 0, swing: false, stroke: DEFAULT_STROKE, timingAim: false, aimX: 0, aimY: 0, dive: false, faultBias: 0 };
+export const NO_INPUT: InputFrame = { moveX: 0, moveY: 0, swing: false, stroke: DEFAULT_STROKE, timingAim: false, aimX: 0, aimY: 0, dive: false, serveLeft: false, serveRight: false, faultBias: 0 };
 
 export interface InputSource {
   /** Which side this source controls. */

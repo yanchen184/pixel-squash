@@ -26,14 +26,14 @@ export type TouchIntent = {
   dive: boolean;
 };
 
-const state: TouchIntent = { vert: 0, horiz: 0, swing: false, stroke: 'clear', dive: false };
+const state: TouchIntent = { vert: 0, horiz: 0, swing: false, stroke: 'drive', dive: false };
 
 export function setTouchMove(vert: number, horiz: number): void {
   state.vert = clamp(vert);
   state.horiz = clamp(horiz);
 }
 
-export function setTouchSwing(swing: boolean, stroke: StrokeId = 'clear'): void {
+export function setTouchSwing(swing: boolean, stroke: StrokeId = 'drive'): void {
   state.swing = swing;
   if (swing) state.stroke = stroke;
 }
@@ -50,7 +50,7 @@ export function resetTouchIntent(): void {
   state.vert = 0;
   state.horiz = 0;
   state.swing = false;
-  state.stroke = 'clear';
+  state.stroke = 'drive';
   state.dive = false;
 }
 

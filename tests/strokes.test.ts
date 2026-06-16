@@ -4,26 +4,33 @@ import { NO_INPUT, type InputFrame } from '@/game/input/InputSource';
 import {
   createInitialState,
   COURT,
-  NET_Y,
   type GameState,
   type ShuttleState,
 } from '@/data/gameState';
 import { STROKES, type StrokeId } from '@/data/strokes';
 
 /**
- * Build a live rally state where P1 (near side) stands right next to a reachable
- * shuttle, so a single `step` with a swing input resolves a hit. Lets us assert
- * each stroke shapes the shuttle differently and that fault gates misfire.
+ * Build a live rally state where P1 stands right next to a reachable ball, so a single
+ * `step` with a swing input resolves a hit. Lets us assert each stroke shapes the ball
+ * differently and that the squash fault gates (min-contact-z / max-front-dist /
+ * need-angle) misfire when their condition isn't met.
+ *
+ * The ball is placed in MID court (y away from the front wall at y=0) so most strokes
+ * are legal; individual tests override pos/z to probe a gate.
  */
-function rallyWithReachableShuttle(over: Partial<ShuttleState> = {}): GameState {
+function rallyWithReachableBall(over: Partial<ShuttleState> = {}): GameState {
   const base = createInitialState();
   const shuttle: ShuttleState = {
-    pos: { x: COURT.width / 2, y: NET_Y + 100 }, // near (P1) half
+    pos: { x: COURT.width / 2, y: COURT.depth * 0.55 },
     z: 100,
     vel: { x: 0, y: 0 },
     vz: 0,
     lastHitBy: 1,
     inPlay: true,
+    bouncesSinceWall: 0,
+    hitFrontWall: false,
+    lastWall: null,
+    deadReason: null,
     landing: null,
     landingEta: 0,
     ...over,
@@ -37,74 +44,100 @@ function rallyWithReachableShuttle(over: Partial<ShuttleState> = {}): GameState 
   };
 }
 
+/** A human swing of a named stroke. timingAim off → no synthetic timing, plays as named. */
 function swingWith(stroke: StrokeId): InputFrame {
   return { ...NO_INPUT, swing: true, stroke };
 }
 
-describe('stroke differentiation', () => {
-  it('each stroke launches with a distinct SPEED — the smash is fastest, the drop slowest', () => {
-    // Speed (horizontal launch px/tick) is now the headline difference between strokes:
-    // a smash rockets, a drop barely creeps. (Apex is capped by APEX_CEIL so it's no
-    // longer the distinguishing axis — pace + speed + landing are.)
-    const spd = new Map<StrokeId, number>();
-    for (const id of ['clear', 'smash', 'drop', 'drive'] as StrokeId[]) {
-      const next = step(rallyWithReachableShuttle(), swingWith(id), NO_INPUT);
-      expect(next.shuttle.lastHitBy).toBe(0); // P1 connected
-      spd.set(id, Math.hypot(next.shuttle.vel.x, next.shuttle.vel.y));
+describe('stroke table', () => {
+  it('defines the six squash strokes with sane bands', () => {
+    const ids: StrokeId[] = ['drive', 'boast', 'lob', 'drop', 'kill', 'serve'];
+    for (const id of ids) {
+      const p = STROKES[id];
+      expect(p, `stroke ${id} exists`).toBeTruthy();
+      expect(p.tof[0]).toBeLessThanOrEqual(p.tof[1]); // valid time-of-flight band
+      expect(p.pace).toBeGreaterThan(0);
     }
-    // Smash is the fastest of the four; the drop is the slowest — opposite tempos.
-    expect(spd.get('smash')!).toBeGreaterThan(spd.get('drive')!);
-    expect(spd.get('smash')!).toBeGreaterThan(spd.get('clear')!);
-    expect(spd.get('drop')!).toBeLessThan(spd.get('clear')!);
-    expect(spd.get('drop')!).toBeLessThan(spd.get('drive')!);
+    // The kill is aimed at the tin line; the lob floats high.
+    expect(STROKES.kill.aim).toBe('tin');
+    expect(STROKES.lob.aim).toBe('high');
   });
+});
 
-  it('smash flies flatter and reaches the receiver in less time than a clear', () => {
-    // A smash is lethal because of its flat, fast arc — a low apex (small up-velocity)
-    // and a short time-of-flight that gives the receiver less time to react. That is
-    // the real "kill", not raw floor px/tick (a deep clear can cover more ground). We
-    // forward-integrate each launch to the floor and compare descent characteristics.
-    const flightTime = (id: StrokeId): { vz: number; ticks: number } => {
-      const next = step(rallyWithReachableShuttle(), swingWith(id), NO_INPUT);
-      const s = next.shuttle;
-      // Reuse the sim's own landing prediction (drag + gravity) for an honest ETA.
-      return { vz: s.vz, ticks: s.landingEta };
+describe('stroke differentiation', () => {
+  it('each stroke connects and aims at a distinct front-wall height', () => {
+    // kill (just above the tin) launches FLATTER than a lob (high on the wall): a kill's
+    // launch vz is smaller than a lob's from the same contact. This is the headline
+    // difference between the attacking rail and the defensive float.
+    const launchVz = (id: StrokeId, over: Partial<ShuttleState> = {}): number => {
+      const next = step(rallyWithReachableBall({ z: 120, ...over }), swingWith(id), NO_INPUT);
+      expect(next.shuttle.lastHitBy, `${id} connected`).toBe(0);
+      return next.shuttle.vz;
     };
-    const smash = flightTime('smash');
-    const clear = flightTime('clear');
-    // Flatter: a smash launches with a smaller upward velocity than a floaty clear.
-    expect(smash.vz).toBeLessThan(clear.vz);
-    // Faster to arrive: less hang time → the receiver gets less reaction window.
-    expect(smash.ticks).toBeLessThan(clear.ticks);
+    const kill = launchVz('kill');
+    const lob = launchVz('lob');
+    // A lob arcs up steeply; a kill skims — the lob's vertical launch is the larger.
+    expect(lob).toBeGreaterThan(kill);
   });
 
-  it('smash misfires on a low ball (fault gate min-contact-z)', () => {
-    const smashFault = STROKES.smash.fault;
-    const lowZ = smashFault?.kind === 'min-contact-z' ? smashFault.z - 20 : 0;
-    const s = rallyWithReachableShuttle({ z: lowZ });
-    const next = step(s, swingWith('smash'), NO_INPUT);
-    // Misfire: shuttle dribbles down on the hitter's own side (negative vz, no drive).
-    expect(next.shuttle.vz).toBeLessThan(0);
+  it('a plain drive (default stroke) produces a valid returnable launch', () => {
+    const next = step(rallyWithReachableBall(), swingWith('drive'), NO_INPUT);
+    expect(next.shuttle.lastHitBy).toBe(0);
+    expect(next.shuttle.inPlay).toBe(true);
+    // Heading toward the front wall (y decreasing): negative y-velocity.
+    expect(next.shuttle.vel.y).toBeLessThan(0);
+  });
+});
+
+describe('fault gates misfire', () => {
+  it('kill misfires on a LOW ball (min-contact-z gate)', () => {
+    const fault = STROKES.kill.fault;
+    const lowZ = fault?.kind === 'min-contact-z' ? fault.z - 20 : 0;
+    const next = step(rallyWithReachableBall({ z: lowZ }), swingWith('kill'), NO_INPUT);
+    // Misfire: the ball dribbles (no horizontal launch) and won't reach the front wall.
+    expect(next.shuttle.lastHitBy).toBe(0); // P1 still made contact
+    expect(Math.hypot(next.shuttle.vel.x, next.shuttle.vel.y)).toBe(0);
+    expect(next.shuttle.hitFrontWall).toBe(false);
+  });
+
+  it('drop misfires when played from DEEP court (max-front-dist gate)', () => {
+    const fault = STROKES.drop.fault;
+    const maxDist = fault?.kind === 'max-front-dist' ? fault.dist : COURT.depth * 0.4;
+    const deepY = maxDist + 120; // well behind the drop's allowed front distance
+    const s = rallyWithReachableBall({ pos: { x: COURT.width / 2, y: deepY }, z: 100 });
+    const deep: GameState = { ...s, p1: { ...s.p1, pos: { x: COURT.width / 2, y: deepY } } };
+    const next = step(deep, swingWith('drop'), NO_INPUT);
+    expect(Math.hypot(next.shuttle.vel.x, next.shuttle.vel.y)).toBe(0); // misfired
+  });
+
+  it('boast misfires from mid-court, away from any side wall (need-angle gate)', () => {
+    // Ball dead-centre (far from both side walls) → no wall to angle off → misfire.
+    const s = rallyWithReachableBall({ pos: { x: COURT.width / 2, y: COURT.depth * 0.5 } });
+    const mid: GameState = { ...s, p1: { ...s.p1, pos: { x: COURT.width / 2, y: COURT.depth * 0.5 } } };
+    const next = step(mid, swingWith('boast'), NO_INPUT);
     expect(Math.hypot(next.shuttle.vel.x, next.shuttle.vel.y)).toBe(0);
   });
 
-  it('drop misfires when played from deep court (fault gate max-net-dist)', () => {
-    const dropFault = STROKES.drop.fault!;
-    const farY = dropFault.kind === 'max-net-dist'
-      ? NET_Y + dropFault.dist + 60 // deeper than the drop's allowed net distance
-      : COURT.depth - 30;
-    const s = rallyWithReachableShuttle({ pos: { x: COURT.width / 2, y: farY }, z: 100 });
-    const stateWithDeepPlayer: GameState = {
-      ...s,
-      p1: { ...s.p1, pos: { x: COURT.width / 2, y: farY } },
-    };
-    const next = step(stateWithDeepPlayer, swingWith('drop'), NO_INPUT);
-    expect(next.shuttle.vz).toBeLessThan(0); // misfired into the tape
+  it('boast CONNECTS when trapped near a side wall (need-angle gate passes)', () => {
+    const fault = STROKES.boast.fault;
+    const maxX = fault?.kind === 'need-angle' ? fault.maxX : 220;
+    const nearWallX = Math.max(0, maxX - 40); // close to the left wall, inside the gate
+    const s = rallyWithReachableBall({ pos: { x: nearWallX, y: COURT.depth * 0.55 }, z: 100 });
+    const trapped: GameState = { ...s, p1: { ...s.p1, pos: { x: nearWallX, y: COURT.depth * 0.55 } } };
+    const next = step(trapped, swingWith('boast'), NO_INPUT);
+    expect(next.shuttle.lastHitBy).toBe(0);
+    expect(Math.hypot(next.shuttle.vel.x, next.shuttle.vel.y)).toBeGreaterThan(0); // launched
   });
+});
 
-  it('a plain clear (default stroke) still produces a valid returnable arc', () => {
-    const next = step(rallyWithReachableShuttle(), swingWith('clear'), NO_INPUT);
-    expect(next.shuttle.vz).toBeGreaterThan(0); // launched upward
-    expect(next.shuttle.inPlay).toBe(true);
+describe('auto-downgrade (timingAim) keeps a connect instead of whiffing', () => {
+  it('a kill on a low ball with timingAim downgrades to a legal drive', () => {
+    // timingAim true → the sim downgrades an illegal stroke to a safe drive that flies.
+    const fault = STROKES.kill.fault;
+    const lowZ = fault?.kind === 'min-contact-z' ? fault.z - 20 : 0;
+    const human: InputFrame = { ...NO_INPUT, swing: true, timingAim: true, stroke: 'kill' };
+    const next = step(rallyWithReachableBall({ z: lowZ }), human, NO_INPUT);
+    expect(next.p1.lastStroke).toBe('drive'); // downgraded
+    expect(next.shuttle.lastHitBy).toBe(0); // still connected
   });
 });
