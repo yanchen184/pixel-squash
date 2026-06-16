@@ -1018,12 +1018,6 @@ export class CanvasRenderer {
     const ctx = this.ctx;
     ctx.save();
 
-    // Squash players face the FRONT WALL (backs to the camera). Flip sprite vertically
-    // so the character appears from behind: translate to foot, scale Y=-1, translate back.
-    ctx.translate(foot.x, foot.y);
-    ctx.scale(1, -1);
-    ctx.translate(-foot.x, -foot.y);
-
     // Lean sprite when diving
     if ((pl.diveFrames > 0 || pl.diveRecovery > 0)) {
       const lean = pl.diveRecovery > 0 ? 1.0 : 0.7;
