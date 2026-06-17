@@ -221,7 +221,7 @@ export const STRIKE_Z = 55; // the comfortable contact height we time against
 export const SHUTTLE_DRAG = 0.998; // (name kept from fork) ball horizontal drag
 
 /** Global pace dial — multiplies effective flight time. Higher = slower ball. */
-export const SHUTTLE_PACE = 5.0;
+export const SHUTTLE_PACE = 1.8;
 
 /** Hard ceiling on a shot's arc apex (z), ~ wall height, so a lob never flies off-screen. */
 export const APEX_CEIL = 460;
