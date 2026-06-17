@@ -295,7 +295,7 @@ export function createInitialState(): GameState {
       previewPath: null,
       previewStroke: null,
       previewStep: -1,
-      previewPathIdx: 0,
+      previewPathIdx: -1,
     },
     0,
   );

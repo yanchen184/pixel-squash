@@ -809,7 +809,7 @@ function stepPracticeServe(state: GameState, inA: InputFrame): GameState {
         previewPath: path,
         previewStroke: inA.stroke,
         previewStep: -1,
-        previewPathIdx: 0,
+        previewPathIdx: -1,
       };
     }
     const p1s = movePlayer(state.p1, inA, 0, state.shuttle, state);
@@ -821,18 +821,15 @@ function stepPracticeServe(state: GameState, inA: InputFrame): GameState {
     const path = state.previewPath ?? [];
     const stops = path.filter(p => p.wall != null);
 
-    // Ball is animating along path points → advance one point per tick
-    if (state.previewPathIdx > 0) {
+    // previewPathIdx >= 0 means animation is active (idx = current path point to show)
+    // previewPathIdx === -1 means waiting for next M press
+    if (state.previewPathIdx >= 0) {
       const idx = state.previewPathIdx;
-      // Find which stop we're heading toward (first stop whose path index >= idx)
-      const targetStopIdx = stops.findIndex((_, si) => {
-        const stopPtIdx = path.indexOf(stops[si]);
-        return stopPtIdx >= idx;
-      });
+      // Find the target stop: first wall-contact point at or after idx
+      const targetStopIdx = stops.findIndex(stop => path.indexOf(stop) >= idx);
       const targetPathIdx = targetStopIdx >= 0 ? path.indexOf(stops[targetStopIdx]) : path.length - 1;
 
-      if (idx < path.length && idx <= targetPathIdx) {
-        // Move ball to next path point
+      if (idx < path.length) {
         const pt = path[idx];
         const animShuttle = {
           ...state.shuttle,
@@ -843,20 +840,20 @@ function stepPracticeServe(state: GameState, inA: InputFrame): GameState {
         };
         const p1s = movePlayer(state.p1, inA, 0, animShuttle, state);
 
-        if (idx === targetPathIdx) {
-          // Reached the target stop — freeze and wait for next M
+        if (idx >= targetPathIdx) {
+          // Reached the target stop — freeze and wait for next M (-1 = idle)
           return {
             ...state,
             shuttle: animShuttle,
             p1: p1s,
-            previewPathIdx: 0,
-            previewStep: targetStopIdx,
+            previewPathIdx: -1,
+            previewStep: targetStopIdx >= 0 ? targetStopIdx : state.previewStep,
           };
         }
         return { ...state, shuttle: animShuttle, p1: p1s, previewPathIdx: idx + 1 };
       }
 
-      // Fell off the end (floor) → launch into rally
+      // Past end of path → launch into rally
       const stroke = state.previewStroke ?? 'drive';
       const fakeShuttle = {
         pos: { x: state.p1.pos.x, y: state.p1.pos.y },
@@ -867,7 +864,7 @@ function stepPracticeServe(state: GameState, inA: InputFrame): GameState {
         landing: null as null, landingEta: 0,
       };
       return launchPracticeServe(
-        { ...state, previewPath: null, previewStroke: null, previewStep: -1, previewPathIdx: 0 },
+        { ...state, previewPath: null, previewStroke: null, previewStep: -1, previewPathIdx: -1 },
         stroke, fakeShuttle,
       );
     }
@@ -877,7 +874,7 @@ function stepPracticeServe(state: GameState, inA: InputFrame): GameState {
       const nextStep = state.previewStep + 1;
 
       if (nextStep < stops.length) {
-        // Find path index of the current position to start animating from
+        // Start from the point after current stop (or 0 if at player)
         const curStop = stops[state.previewStep];
         const startPtIdx = state.previewStep < 0 ? 0 : path.indexOf(curStop) + 1;
         const p1s = movePlayer(state.p1, inA, 0, state.shuttle, state);
@@ -895,7 +892,7 @@ function stepPracticeServe(state: GameState, inA: InputFrame): GameState {
         landing: null as null, landingEta: 0,
       };
       return launchPracticeServe(
-        { ...state, previewPath: null, previewStroke: null, previewStep: -1, previewPathIdx: 0 },
+        { ...state, previewPath: null, previewStroke: null, previewStep: -1, previewPathIdx: -1 },
         stroke, fakeShuttle,
       );
     }
@@ -908,7 +905,7 @@ function stepPracticeServe(state: GameState, inA: InputFrame): GameState {
         return {
           ...state, p1: r1.player, shuttle: r1.shuttle,
           serveSubPhase: null, previewPath: null, previewStroke: null,
-          previewStep: -1, previewPathIdx: 0,
+          previewStep: -1, previewPathIdx: -1,
           phase: 'rally' as const,
         };
       }
