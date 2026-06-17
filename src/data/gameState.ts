@@ -159,6 +159,8 @@ export type GameState = {
   previewStroke: import('@/data/strokes').StrokeId | null;
   /** Index into previewPath wall-contact stops; ball is shown at this stop. -1 = at player. */
   previewStep: number;
+  /** Index into previewPath points array — ball animates through these each tick when > 0. */
+  previewPathIdx: number;
 };
 
 // ---- Logic-space constants (deterministic) ----
@@ -293,6 +295,7 @@ export function createInitialState(): GameState {
       previewPath: null,
       previewStroke: null,
       previewStep: -1,
+      previewPathIdx: 0,
     },
     0,
   );

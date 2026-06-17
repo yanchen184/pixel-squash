@@ -809,68 +809,106 @@ function stepPracticeServe(state: GameState, inA: InputFrame): GameState {
         previewPath: path,
         previewStroke: inA.stroke,
         previewStep: -1,
+        previewPathIdx: 0,
       };
     }
     const p1s = movePlayer(state.p1, inA, 0, state.shuttle, state);
     return { ...state, p1: p1s };
   }
 
-  // ── preview: path visible; M advances ball stop-by-stop; swing keys work normally ──
+  // ── preview: path visible; M starts ball animating to next wall stop ──
   if (sub === 'preview') {
     const path = state.previewPath ?? [];
     const stops = path.filter(p => p.wall != null);
 
-    // M key → advance ball to next wall-contact stop (or launch if exhausted)
-    if (inA.nextStop) {
-      const nextStep = state.previewStep + 1;
+    // Ball is animating along path points → advance one point per tick
+    if (state.previewPathIdx > 0) {
+      const idx = state.previewPathIdx;
+      // Find which stop we're heading toward (first stop whose path index >= idx)
+      const targetStopIdx = stops.findIndex((_, si) => {
+        const stopPtIdx = path.indexOf(stops[si]);
+        return stopPtIdx >= idx;
+      });
+      const targetPathIdx = targetStopIdx >= 0 ? path.indexOf(stops[targetStopIdx]) : path.length - 1;
 
-      if (nextStep < stops.length) {
-        const stop = stops[nextStep];
-        // Wall contact y: front=0, back=COURT.depth, side walls keep current flight y
-        const wallY =
-          stop.wall === 'front' ? 0 :
-          stop.wall === 'back'  ? COURT.depth :
-          stop.wall === 'floor' ? (stop.y ?? state.shuttle.pos.y) :
-          stop.y ?? state.shuttle.pos.y;
-        const stoppedShuttle = {
+      if (idx < path.length && idx <= targetPathIdx) {
+        // Move ball to next path point
+        const pt = path[idx];
+        const animShuttle = {
           ...state.shuttle,
-          pos: { x: stop.x, y: wallY },
-          z: stop.wall === 'floor' ? 0 : stop.z,
+          pos: { x: pt.x, y: pt.y ?? state.shuttle.pos.y },
+          z: pt.z,
           vel: { x: 0, y: 0 }, vz: 0,
           inPlay: false,
-          lastHitBy: null as null,
         };
-        const p1s = movePlayer(state.p1, inA, 0, stoppedShuttle, state);
-        return { ...state, previewStep: nextStep, shuttle: stoppedShuttle, p1: p1s };
+        const p1s = movePlayer(state.p1, inA, 0, animShuttle, state);
+
+        if (idx === targetPathIdx) {
+          // Reached the target stop — freeze and wait for next M
+          return {
+            ...state,
+            shuttle: animShuttle,
+            p1: p1s,
+            previewPathIdx: 0,
+            previewStep: targetStopIdx,
+          };
+        }
+        return { ...state, shuttle: animShuttle, p1: p1s, previewPathIdx: idx + 1 };
       }
 
-      // All stops visited → enter rally with the ball launched
+      // Fell off the end (floor) → launch into rally
       const stroke = state.previewStroke ?? 'drive';
       const fakeShuttle = {
         pos: { x: state.p1.pos.x, y: state.p1.pos.y },
-        z: 80,
-        vel: { x: 0, y: 0 }, vz: 0,
+        z: 80, vel: { x: 0, y: 0 }, vz: 0,
         lastHitBy: null as null, inPlay: true,
         bouncesSinceWall: 0, hitFrontWall: false,
         lastWall: null as null, deadReason: null as null,
         landing: null as null, landingEta: 0,
       };
       return launchPracticeServe(
-        { ...state, previewPath: null, previewStroke: null, previewStep: -1 },
-        stroke,
-        fakeShuttle,
+        { ...state, previewPath: null, previewStroke: null, previewStep: -1, previewPathIdx: 0 },
+        stroke, fakeShuttle,
       );
     }
 
-    // Swing keys work normally — player can hit the ball during preview
+    // M key → start animating toward next stop (or launch if all stops done)
+    if (inA.nextStop) {
+      const nextStep = state.previewStep + 1;
+
+      if (nextStep < stops.length) {
+        // Find path index of the current position to start animating from
+        const curStop = stops[state.previewStep];
+        const startPtIdx = state.previewStep < 0 ? 0 : path.indexOf(curStop) + 1;
+        const p1s = movePlayer(state.p1, inA, 0, state.shuttle, state);
+        return { ...state, p1: p1s, previewPathIdx: startPtIdx };
+      }
+
+      // All stops done → launch
+      const stroke = state.previewStroke ?? 'drive';
+      const fakeShuttle = {
+        pos: { x: state.p1.pos.x, y: state.p1.pos.y },
+        z: 80, vel: { x: 0, y: 0 }, vz: 0,
+        lastHitBy: null as null, inPlay: true,
+        bouncesSinceWall: 0, hitFrontWall: false,
+        lastWall: null as null, deadReason: null as null,
+        landing: null as null, landingEta: 0,
+      };
+      return launchPracticeServe(
+        { ...state, previewPath: null, previewStroke: null, previewStep: -1, previewPathIdx: 0 },
+        stroke, fakeShuttle,
+      );
+    }
+
+    // Swing keys work normally — player can hit the frozen ball during preview
     let p1 = movePlayer(state.p1, inA, 0, state.shuttle, state);
     if (inA.swing && state.shuttle.inPlay) {
       const r1 = resolveSwing(p1, inA, state.shuttle, 0, state.p2, state.rallyHitCount);
       if (r1.player.justHit) {
-        // Player hit the ball → exit preview and go to rally
         return {
           ...state, p1: r1.player, shuttle: r1.shuttle,
-          serveSubPhase: null, previewPath: null, previewStroke: null, previewStep: -1,
+          serveSubPhase: null, previewPath: null, previewStroke: null,
+          previewStep: -1, previewPathIdx: 0,
           phase: 'rally' as const,
         };
       }
