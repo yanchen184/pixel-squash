@@ -107,6 +107,15 @@ export type ShuttleState = {
 
 export type RallyPhase = 'serve' | 'rally' | 'point';
 
+/**
+ * Sub-phases of a manual serve (practice mode only).
+ * null = not in a manual serve sub-phase (match mode, or AI is serving).
+ *   'choice'  — waiting for player to pick left/right box
+ *   'toss'    — box chosen; waiting for player to press any swing key to toss the ball
+ *   'swing'   — ball is in the air (toss arc); waiting for player to press swing key to hit
+ */
+export type ServeSubPhase = 'choice' | 'toss' | 'preview' | 'swing' | null;
+
 /** Practice mode: no scoring, AI only lobs, landing arc preview always visible. */
 export type GameMode = 'match' | 'practice';
 
@@ -126,6 +135,10 @@ export type GameState = {
    * The sim waits for left/right input before launching. False for AI serves (box chosen automatically).
    */
   awaitingServeChoice: boolean;
+  /** Manual serve sub-phase (practice mode, human server only). null otherwise. */
+  serveSubPhase: ServeSubPhase;
+  /** Z height of the tossed ball during the 'swing' sub-phase. */
+  tossZ: number;
   /** Frames to wait on serve/point before next action. */
   phaseTimer: number;
   winner: Side | null;
@@ -137,6 +150,13 @@ export type GameState = {
   rallyHitCount: number;
   /** Game mode — 'match' = normal scoring; 'practice' = no scoring, free rally. */
   gameMode: GameMode;
+  /**
+   * Practice serve preview: sampled points along the ball's predicted path.
+   * Each entry is {x, y, z, wall?} in game-space. Null when no preview active.
+   */
+  previewPath: import('@/game/sim/simulate').PathPoint[] | null;
+  /** Which stroke type is being previewed. */
+  previewStroke: import('@/data/strokes').StrokeId | null;
 };
 
 // ---- Logic-space constants (deterministic) ----
@@ -148,10 +168,10 @@ export const COURT = { width: 640, depth: 980 } as const;
 
 /** Max useful wall height (front wall valid zone tops out below this). */
 export const WALL_HEIGHT = 480;
-/** The tin (board) at the bottom of the front wall — a shot must strike ABOVE this z. */
-export const TIN_HEIGHT = 80;
-/** The out line at the top of the front wall — a shot striking above this is OUT. */
-export const FRONT_OUT_HEIGHT = 456;
+/** The tin (board) at the bottom of the front wall — WSF: 0.48m / 4.57m = 10.5% of wall height. */
+export const TIN_HEIGHT = 50;
+/** The out line at the top of the front wall — WSF: this IS the top of the wall. */
+export const FRONT_OUT_HEIGHT = 480;
 /** Short service line: a serve's first floor bounce must land BEHIND this (y > line). */
 export const SERVE_LINE_Y = 549;
 export const FLOOR_Z = 0;
@@ -161,7 +181,7 @@ export const STAMINA_MAX = 100;
 export const POINTS_TO_WIN = 11;
 export const WIN_BY = 2;
 
-export const PLAYER_SPEED = 9.5; // logic px per tick (both axes)
+export const PLAYER_SPEED = 6.0; // logic px per tick (both axes)
 export const SWING_COOLDOWN_FRAMES = 14;
 export const SWING_REACH = 100; // floor distance to ball that counts as a hit (larger court)
 export const SWING_REACH_Z = 160; // max ball height still reachable
@@ -201,7 +221,7 @@ export const STRIKE_Z = 55; // the comfortable contact height we time against
 export const SHUTTLE_DRAG = 0.998; // (name kept from fork) ball horizontal drag
 
 /** Global pace dial — multiplies effective flight time. Higher = slower ball. */
-export const SHUTTLE_PACE = 1.8;
+export const SHUTTLE_PACE = 5.0;
 
 /** Hard ceiling on a shot's arc apex (z), ~ wall height, so a lob never flies off-screen. */
 export const APEX_CEIL = 460;
@@ -215,6 +235,8 @@ export const FLOOR_BOUNCE = 0.58; // floor bounce: enough to carry to back court
 export const HITSTOP_PERFECT = 6;
 export const HITSTOP_GOOD = 3;
 export const HITSTOP_WEAK = 1;
+/** Front-wall impact freeze — gives the "ball pressing into the wall" feel. */
+export const HITSTOP_FRONT_WALL = 4;
 
 // ---- AI rubber-band ----
 export const MOMENTUM_MAX = 4;
@@ -258,12 +280,16 @@ export function createInitialState(): GameState {
       server: 0,
       serveBox: 1,
       awaitingServeChoice: false,
+      serveSubPhase: null,
+      tossZ: 0,
       phaseTimer: 0,
       winner: null,
       hitstop: 0,
       momentum: 0,
       rallyHitCount: 0,
       gameMode: 'match',
+      previewPath: null,
+      previewStroke: null,
     },
     0,
   );
@@ -300,6 +326,9 @@ export function resetForServe(state: GameState, server: Side): GameState {
     // Only the very first serve of the match asks the human to choose a box;
     // subsequent serves auto-alternate (PAR rule). resetForServe never re-triggers the choice.
     awaitingServeChoice: false,
+    serveSubPhase: state.gameMode === 'practice' ? 'toss' : null,
+    previewPath: null,
+    previewStroke: null,
     phaseTimer: 45,
     p1: { ...state.p1, pos: { ...makePlayer(0).pos }, facing: 'up', diveFrames: 0, diveDir: { x: 0, y: 0 }, diveRecovery: 0 },
     p2: { ...state.p2, pos: { ...makePlayer(1).pos }, facing: 'up', diveFrames: 0, diveDir: { x: 0, y: 0 }, diveRecovery: 0 },

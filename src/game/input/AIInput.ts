@@ -28,22 +28,31 @@ export type Difficulty = 'easy' | 'medium' | 'hard';
  */
 type AIParams = {
   reactionDelay: number;
-  predictionAccuracy: number; // 0..1
-  fumbleRate: number; // 0..1 — chance the AI just whiffs/lets a ball go (no swing)
+  predictionAccuracy: number; // 0..1 — landing-spot prediction error radius
   /**
-   * Chance a swing the AI DOES make is an unforced error — it sails OUT (above the out
-   * line) or dies in the TIN (below it), the same faults a human risks from bad timing.
-   * Higher on easy (a beatable opponent that gifts points), near-zero on hard. Distinct
-   * from fumbleRate: fumble = no contact; fault = contact, but a bad shot.
+   * Fraction of PLAYER_SPEED the AI uses per tick (stochastic gate per axis).
+   * rng < speedFactor → move that axis, else hold. Hard AI = 1.0 (always moves).
    */
-  faultRate: number; // 0..1
-  deadzone: number; // px slop around target before it stops shuffling
+  speedFactor: number; // 0.5..1.0
+  idleRate: number; // kept at 0 — AI always chases; difficulty from reaction/prediction
+  fumbleRate: number; // 0..1 — chance the AI whiffs even when in reach
+  faultRate: number; // 0..1 — chance a swing is an unforced error (OUT or TIN)
+  deadzone: number; // px slop around target before movement stops
+  /**
+   * Tactical aggression 0..1. Controls how often pickStroke selects a positional shot
+   * instead of a safe drive. 0 = always drive (easy), 1 = full tactical play (hard).
+   */
+  aggression: number;
 };
 
 const PARAMS: Record<Difficulty, AIParams> = {
-  easy: { reactionDelay: 10, predictionAccuracy: 0.5, fumbleRate: 0.22, faultRate: 0.2, deadzone: 28 },
-  medium: { reactionDelay: 5, predictionAccuracy: 0.82, fumbleRate: 0.09, faultRate: 0.08, deadzone: 18 },
-  hard: { reactionDelay: 2, predictionAccuracy: 1.0, fumbleRate: 0.02, faultRate: 0.02, deadzone: 10 },
+  // Difficulty via reaction/prediction — not by ignoring balls (idleRate=0 for all).
+  // aggression: easy=mostly safe drives, medium=occasional tactical, hard=full positional.
+  // Win-rate ranking comes from reactionDelay + predictionAccuracy, not aggression.
+  //                         react  predAcc  speed  idle  fumble  fault  dead   aggr
+  easy:   { reactionDelay: 20, predictionAccuracy: 0.32, speedFactor: 0.78, idleRate: 0.00, fumbleRate: 0.14, faultRate: 0.14, deadzone: 38, aggression: 0.20 },
+  medium: { reactionDelay:  7, predictionAccuracy: 0.76, speedFactor: 0.90, idleRate: 0.00, fumbleRate: 0.07, faultRate: 0.06, deadzone: 22, aggression: 0.55 },
+  hard:   { reactionDelay:  2, predictionAccuracy: 0.96, speedFactor: 1.00, idleRate: 0.00, fumbleRate: 0.02, faultRate: 0.01, deadzone: 12, aggression: 1.00 },
 };
 
 /**
@@ -59,6 +68,9 @@ export class AIInput implements InputSource {
   private target: Vec2;
   private fumbleThisShuttle = false;
   private practiceMode = false;
+  /** Per-ball prediction error offset, rolled once when ball changes hands. */
+  private predErrX = 0;
+  private predErrY = 0;
   /**
    * Synthetic mistime for THIS ball: 0 = clean, >0 = an over-hit that'll sail OUT (above
    * the out line), <0 = an under-hit that'll die in the TIN. Rolled once per incoming ball
@@ -88,6 +100,8 @@ export class AIInput implements InputSource {
     this.fumbleThisShuttle = false;
     this.faultBiasThisShuttle = 0;
     this.wasInPlay = false;
+    this.predErrX = 0;
+    this.predErrY = 0;
     this.target = this.home();
   }
 
@@ -133,6 +147,11 @@ export class AIInput implements InputSource {
       } else {
         this.faultBiasThisShuttle = 0;
       }
+      // Roll prediction error ONCE per ball — locks the AI onto the wrong target for the
+      // whole rally leg. Re-rolling every tick averages to zero, killing the easy/medium
+      // skill gap. A real squash player reads the ball once and commits.
+      this.predErrX = (this.rng() * 2 - 1) * (1 - this.p.predictionAccuracy) * (COURT.width * 0.30);
+      this.predErrY = (this.rng() * 2 - 1) * (1 - this.p.predictionAccuracy) * (COURT.depth * 0.25);
       this.target = this.predictLanding(state);
     }
 
@@ -143,6 +162,8 @@ export class AIInput implements InputSource {
     }
 
     if (mineToReturn) {
+      // Update target each tick so physics integration (ball moving) refines the aim,
+      // but predErrX/predErrY are fixed per ball — no re-rolling of random error here.
       this.target = this.predictLanding(state);
     } else {
       // Not my ball — recover toward the T (centre-court control position).
@@ -153,7 +174,10 @@ export class AIInput implements InputSource {
     const inReach = mineToReturn && distToShuttle < SWING_REACH && shuttle.z <= SWING_REACH_Z;
     const swing = inReach && me.swingCooldown === 0 && !this.fumbleThisShuttle;
     // Practice mode: AI always lobs to give the human predictable balls to return.
-    const stroke = swing ? (this.practiceMode ? 'lob' : this.pickStroke(me.pos, shuttle.z, shuttle.pos, opp.pos, state.momentum)) : 'drive';
+    // aggression gate: roll once — if below aggression threshold, play a tactical shot,
+    // otherwise fall back to safe drive.
+    const useTactics = !this.practiceMode && this.rng() < this.p.aggression;
+    const stroke = swing ? (this.practiceMode ? 'lob' : useTactics ? this.pickStroke(me.pos, shuttle.z, shuttle.pos, opp.pos, state.momentum) : 'drive') : 'drive';
 
     // Diving save: the ball is mine + incoming, just out of normal reach but within the
     // dive's extended reach, and I'm not already committed / too gassed. A reflex lunge
@@ -255,8 +279,14 @@ export class AIInput implements InputSource {
   ): InputFrame {
     const dx = target.x - cur.x;
     const dy = target.y - cur.y;
-    const moveX = Math.abs(dx) <= this.p.deadzone ? 0 : dx > 0 ? 1 : -1;
-    const moveY = Math.abs(dy) <= this.p.deadzone ? 0 : dy > 0 ? 1 : -1;
+    // speedFactor < 1 → stochastically suppress movement inputs so the AI effectively
+    // moves slower. Each axis is independently gated: rng < speedFactor → move, else hold.
+    // This is the primary easy/hard differentiator: a slow AI simply doesn't arrive in time.
+    const sf = this.p.speedFactor;
+    const moveX = Math.abs(dx) <= this.p.deadzone ? 0
+      : (sf >= 1.0 || this.rng() < sf) ? (dx > 0 ? 1 : -1) : 0;
+    const moveY = Math.abs(dy) <= this.p.deadzone ? 0
+      : (sf >= 1.0 || this.rng() < sf) ? (dy > 0 ? 1 : -1) : 0;
     // The AI gives no explicit aim — it relies on the stroke's natural auto-placement
     // (centre-of-front-wall rail). aimX/aimY = 0 selects that fallback in the sim. It uses
     // explicit (named) strokes, so timingAim is false (no timing-based left/right — that's
@@ -268,13 +298,16 @@ export class AIInput implements InputSource {
   /** Predict where the ball crosses the AI's strike height, with error. */
   private predictLanding(state: GameState): Vec2 {
     const s = state.shuttle;
+    // Use the pre-rolled per-ball error (set once when ball changes hands).
+    // This locks the AI onto a committed (possibly wrong) target for the whole leg —
+    // re-rolling every tick would average to zero and kill the easy/hard skill gap.
+    const errX = this.predErrX;
+    const errY = this.predErrY;
     // The sim already forward-integrates the ball's first floor landing (after wall
     // bounces). Trust it when present — it's the honest target a real player chases.
     if (s.landing) {
       const px = clamp(s.landing.x, PLAYER_MARGIN, COURT.width - PLAYER_MARGIN);
       const py = clamp(s.landing.y, PLAYER_MARGIN, COURT.depth - PLAYER_MARGIN);
-      const errX = (this.rng() * 2 - 1) * (1 - this.p.predictionAccuracy) * (COURT.width * 0.12);
-      const errY = (this.rng() * 2 - 1) * (1 - this.p.predictionAccuracy) * (COURT.depth * 0.1);
       return { x: clamp(px + errX, PLAYER_MARGIN, COURT.width - PLAYER_MARGIN), y: clamp(py + errY, PLAYER_MARGIN, COURT.depth - PLAYER_MARGIN) };
     }
 
@@ -295,8 +328,6 @@ export class AIInput implements InputSource {
     px = clamp(px, PLAYER_MARGIN, COURT.width - PLAYER_MARGIN);
     py = clamp(py, PLAYER_MARGIN, COURT.depth - PLAYER_MARGIN);
 
-    const errX = (this.rng() * 2 - 1) * (1 - this.p.predictionAccuracy) * (COURT.width * 0.12);
-    const errY = (this.rng() * 2 - 1) * (1 - this.p.predictionAccuracy) * (COURT.depth * 0.1);
     return { x: px + errX, y: py + errY };
   }
 

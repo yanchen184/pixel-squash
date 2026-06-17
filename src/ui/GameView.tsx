@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { CanvasRenderer, GAME_WIDTH, GAME_HEIGHT } from '@/game/render/CanvasRenderer';
+import { PracticeRenderer } from '@/game/render/PracticeRenderer';
 import type { Difficulty } from '@/game/input/AIInput';
 import type { GameMode } from '@/data/gameState';
 import { Hud } from './Hud';
@@ -15,23 +16,26 @@ export type MatchConfig = { difficulty: Difficulty; gameMode?: GameMode };
  * to the sim only through the event bus / touch singleton — unchanged by the swap.
  */
 export function GameView({ config, onExit }: { config: MatchConfig; onExit: () => void }) {
+  type AnyRenderer = { start(): void; stop(): void; restart(): void };
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const rendererRef = useRef<CanvasRenderer | null>(null);
+  const rendererRef = useRef<AnyRenderer | null>(null);
 
   useEffect(() => {
     if (!canvasRef.current) return;
-    const renderer = new CanvasRenderer(canvasRef.current, config);
+    const isPractice = config.gameMode === 'practice';
+    const renderer = isPractice
+      ? new PracticeRenderer(canvasRef.current)
+      : new CanvasRenderer(canvasRef.current, config);
     rendererRef.current = renderer;
     renderer.start();
     if (import.meta.env.DEV) {
-      (window as unknown as { __renderer: CanvasRenderer }).__renderer = renderer;
+      (window as unknown as { __renderer: typeof renderer }).__renderer = renderer;
     }
     return () => {
       renderer.stop();
       rendererRef.current = null;
       disposeControls();
     };
-    // config is set once per match entry; difficulty changes go through the renderer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

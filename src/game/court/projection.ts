@@ -38,11 +38,11 @@ export type CourtProjection = {
 
 /** Anchors describing the screen trapezoid (top narrow at the front wall, bottom wide). */
 export const DEFAULT_PROJECTION: CourtProjection = {
-  farY: 240, // TOP screen y (front wall floor edge, logic y=0)
-  nearY: 680, // BOTTOM screen y (back of court, logic y=depth)
-  farHalf: 280, // half-WIDTH at the top (front wall, narrow)
-  nearHalf: 580, // half-WIDTH at the bottom (back, wide)
-  centerX: 640, // horizontal screen centre (room centreline)
+  farY: 305,  // TOP screen y (front wall floor edge) — art brightness jump at row 434 → canvas_y=305
+  nearY: 439, // BOTTOM screen y (back wall) — calibrated from service line at canvas_y=380
+  farHalf: 340,  // half-WIDTH at the front wall (narrow — perspective)
+  nearHalf: 638, // half-WIDTH at the back wall (wide — near the camera)
+  centerX: 645,  // horizontal screen centre
 };
 
 export type Projector = {
@@ -58,8 +58,8 @@ export type Projector = {
  * At the back (near, d=1) the player is large and height lifts more.
  * Scale factor: farScale at d=0, nearScale at d=1, lerped in between.
  */
-const HEIGHT_SCALE_FAR = 0.42;  // px-lift per logic height unit at the front wall
-const HEIGHT_SCALE_NEAR = 0.80; // px-lift per logic height unit at the back
+const HEIGHT_SCALE_FAR = 0.533;  // (farY - out_line_canvas_y) / FRONT_OUT_HEIGHT = (305-62)/456
+const HEIGHT_SCALE_NEAR = 0.80;  // px-lift per logic height unit at the back
 
 export function makeProjector(proj: CourtProjection = DEFAULT_PROJECTION): Projector {
   const topY = proj.farY; // front wall floor edge (logic y=0)

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { eventBus } from '@/game/eventBus';
+import { SoundEngine } from '@/game/audio/SoundEngine';
 import { POINTS_TO_WIN, WIN_BY } from '@/data/gameState';
 
 /** Returns true when the viewport is narrower than 520px. */
@@ -23,10 +24,16 @@ export function Hud({ onExit, onRestart }: { onExit: () => void; onRestart: () =
   const [scores, setScores] = useState<[number, number]>([0, 0]);
   const [stamina, setStamina] = useState({ p1: 100, p2: 100 });
   const [winner, setWinner] = useState<0 | 1 | null>(null);
-  // Flash state: which side just scored (drives bounce animation)
   const [scoredSide, setScoredSide] = useState<0 | 1 | null>(null);
+  const [muted, setMuted] = useState(false);
   const prevScoresRef = useRef<[number, number]>([0, 0]);
   const narrow = useNarrow();
+
+  const toggleMute = () => {
+    const next = !muted;
+    setMuted(next);
+    SoundEngine.get().setEnabled(!next);
+  };
 
   useEffect(() => {
     const offScore = eventBus.on('score:changed', ({ scores: newScores }) => {
@@ -90,8 +97,13 @@ export function Hud({ onExit, onRestart }: { onExit: () => void; onRestart: () =
         <MatchDots scores={scores} />
       </div>
 
-      {/* Exit button — sits independently above the CPU card */}
-      <button style={s.exitBtn} onClick={onExit}>✕</button>
+      {/* Exit + mute buttons — anchored top-right */}
+      <div style={s.cornerBtns}>
+        <button style={s.iconBtn} onClick={toggleMute} title={muted ? '開聲音' : '靜音'}>
+          {muted ? '🔇' : '🔊'}
+        </button>
+        <button style={s.exitBtn} onClick={onExit}>✕</button>
+      </div>
 
       {/* Match-over modal */}
       {winner !== null && (
@@ -379,11 +391,31 @@ const s: Record<string, React.CSSProperties> = {
     backdropFilter: 'blur(4px)',
   },
 
-  /* ── exit button — anchored top-right, independent of topBar ── */
-  exitBtn: {
+  /* ── exit + mute buttons — top-right cluster ── */
+  cornerBtns: {
     position: 'absolute',
     top: 10,
     right: 10,
+    display: 'flex',
+    gap: 6,
+    pointerEvents: 'auto' as const,
+  },
+  iconBtn: {
+    width: 30,
+    height: 30,
+    background: 'rgba(10,14,22,0.78)',
+    color: 'rgba(200,215,230,0.8)',
+    border: '1px solid rgba(80,110,130,0.28)',
+    borderRadius: 6,
+    cursor: 'pointer',
+    fontSize: 14,
+    padding: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backdropFilter: 'blur(4px)',
+  },
+  exitBtn: {
     width: 30,
     height: 30,
     background: 'rgba(10,14,22,0.78)',
@@ -391,7 +423,6 @@ const s: Record<string, React.CSSProperties> = {
     border: '1px solid rgba(80,110,130,0.28)',
     borderRadius: 6,
     cursor: 'pointer',
-    pointerEvents: 'auto' as const,
     fontSize: 11,
     letterSpacing: '0.05em',
     padding: 0,

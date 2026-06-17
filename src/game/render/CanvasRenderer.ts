@@ -30,6 +30,7 @@ import {
   wallImpactCrop,
   PLAYER_LUNGE_CROPS,
   PLAYER_LATERAL_CROPS,
+  PLAYER_BACKVIEW_CROPS,
   OPPONENT_CROPS,
   type Crop,
 } from '@/assets/assetLoader';
@@ -211,6 +212,10 @@ export class CanvasRenderer {
   // Fault flash — lights up tin (bottom) or out-line (top) for a few frames.
   private faultFlash: { kind: 'tin' | 'out'; age: number; life: number } | null = null;
 
+  // Audience cheer overlay — triggered on score / long rally / dive save.
+  private cheerTimer = 0; // frames remaining; drives audience flash brightness
+  private prevRallyHitCountCheer = 0; // last rallyHitCount threshold we cheered at
+
   constructor(canvas: HTMLCanvasElement, cfg: RendererConfig) {
     canvas.width = GAME_WIDTH;
     canvas.height = GAME_HEIGHT;
@@ -283,6 +288,9 @@ export class CanvasRenderer {
     this.prevPhase = 'serve';
     this.faultFlash = null;
     this.prevRallyHitCount = 0;
+    this.cheerTimer = 0;
+    this.cheerText = null;
+    this.prevRallyHitCountCheer = 0;
     eventBus.emit('sim:reset', undefined);
   }
 
@@ -357,6 +365,25 @@ export class CanvasRenderer {
     }
     this.prevPhase = s.phase;
 
+    // --- Audience cheer triggers ---
+    // 1) Point scored
+    if (s.scores[0] !== this.lastScores[0] || s.scores[1] !== this.lastScores[1]) {
+      this.triggerCheer(120, '全場歡呼！', '#f0d060');
+    }
+    // 2) Every 10 successful hits in a rally
+    const cheerThreshold = Math.floor(s.rallyHitCount / 10) * 10;
+    if (s.rallyHitCount > 0 && cheerThreshold > this.prevRallyHitCountCheer && s.rallyHitCount >= 10) {
+      this.prevRallyHitCountCheer = cheerThreshold;
+      this.triggerCheer(90, '精彩對拍！', '#80e8c0');
+    }
+    if (s.phase === 'serve') this.prevRallyHitCountCheer = 0;
+    // 3) Dive save (魚躍救球): justHit while diveFrames > 0 or diveRecovery > 0
+    const p1DiveSave = s.p1.justHit && (s.p1.diveFrames > 0);
+    const p2DiveSave = s.p2.justHit && (s.p2.diveFrames > 0);
+    if (p1DiveSave || p2DiveSave) {
+      this.triggerCheer(80, '魚躍救球！', '#60c8ff');
+    }
+
     // Ball ghost trail — sample every 2 ticks when moving fast.
     if (s.shuttle.inPlay) {
       this.ghostTimer++;
@@ -394,6 +421,54 @@ export class CanvasRenderer {
 
     this.shake *= 0.80;
     if (this.shake < 0.3) this.shake = 0;
+
+    if (this.cheerTimer > 0) this.cheerTimer--;
+    if (this.cheerText) {
+      this.cheerText.age++;
+      if (this.cheerText.age >= this.cheerText.life) this.cheerText = null;
+    }
+  }
+
+  private cheerText: { text: string; color: string; age: number; life: number } | null = null;
+
+  private triggerCheer(frames: number, text: string, color: string): void {
+    this.cheerTimer = Math.max(this.cheerTimer, frames);
+    // Only show cheerText if one isn't already running (avoid overwriting score text)
+    if (!this.cheerText || this.cheerText.age > this.cheerText.life * 0.5) {
+      this.cheerText = { text, color, age: 0, life: frames };
+    }
+  }
+
+  private drawCheerFlash(): void {
+    if (this.cheerTimer <= 0) return;
+    const ctx = this.ctx;
+    // Audience area: top strip of the canvas
+    const alpha = Math.min(1, this.cheerTimer / 30) * 0.35;
+    const grad = ctx.createLinearGradient(0, 0, 0, GAME_HEIGHT * 0.45);
+    grad.addColorStop(0, `rgba(255,240,140,${alpha})`);
+    grad.addColorStop(0.5, `rgba(255,200,80,${alpha * 0.5})`);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.save();
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT * 0.45);
+    ctx.restore();
+
+    // Cheer label — drawn at the top of the court (audience area), separate from refAnnouncements
+    if (this.cheerText) {
+      const { text, color, age, life } = this.cheerText;
+      const t = age / life;
+      const textAlpha = t < 0.15 ? t / 0.15 : t > 0.65 ? 1 - (t - 0.65) / 0.35 : 1;
+      ctx.save();
+      ctx.globalAlpha = textAlpha * 0.9;
+      ctx.font = 'bold 24px "Segoe UI", system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 16;
+      ctx.fillStyle = color;
+      ctx.fillText(text, GAME_WIDTH / 2, GAME_HEIGHT * 0.14);
+      ctx.restore();
+    }
   }
 
   private spawnBurstIfHit(who: 'p1' | 'p2', pl: PlayerState, s: GameState): void {
@@ -442,6 +517,8 @@ export class CanvasRenderer {
     // Back-to-front: bg art → walls → floor → front wall → court overlay → fx →
     //   actors → ball → FOREGROUND glass gallery (occludes actors) → vignette.
     this.drawCourtBaseArt();
+    this.drawCheerFlash();
+    this.drawAudienceArt();
     this.drawWalls();
     this.drawFloor();
     this.drawFrontWall();
@@ -530,43 +607,40 @@ export class CanvasRenderer {
     const { width, depth } = COURT;
     const h = WALL_HEIGHT;
 
-    // Left wall: floor corners first (bottom), then ceiling corners (top).
-    //   Back-bottom, Front-bottom, Front-top, Back-top
-    const lbb = this.pt(0, depth, 0);
-    const lfb = this.pt(0, 0, 0);
-    const lft = this.pt(0, 0, h);
-    const lbt = this.pt(0, depth, h);
+    if (!this.hasCourtArt()) {
+      // Procedural fills only when no art is loaded
+      const lbb = this.pt(0, depth, 0);
+      const lfb = this.pt(0, 0, 0);
+      const lft = this.pt(0, 0, h);
+      const lbt = this.pt(0, depth, h);
+      const leftGrad = ctx.createLinearGradient(lfb.x, lfb.y, lbb.x, lbb.y);
+      leftGrad.addColorStop(0, 'rgba(28,43,62,0.38)');
+      leftGrad.addColorStop(1, 'rgba(14,24,32,0.28)');
+      this.fillQuadGrad(lbb, lbt, lft, lfb, leftGrad);
+      ctx.strokeStyle = COL.wallEdge;
+      ctx.lineWidth = 2;
+      this.strokePoly([lbt, lft]);
 
-    const leftGrad = ctx.createLinearGradient(lfb.x, lfb.y, lbb.x, lbb.y);
-    leftGrad.addColorStop(0, 'rgba(28,43,62,0.38)');
-    leftGrad.addColorStop(1, 'rgba(14,24,32,0.28)');
-    this.fillQuadGrad(lbb, lbt, lft, lfb, leftGrad);
+      const rbb = this.pt(width, depth, 0);
+      const rfb = this.pt(width, 0, 0);
+      const rft = this.pt(width, 0, h);
+      const rbt = this.pt(width, depth, h);
+      const rightGrad = ctx.createLinearGradient(rfb.x, rfb.y, rbb.x, rbb.y);
+      rightGrad.addColorStop(0, 'rgba(28,43,62,0.38)');
+      rightGrad.addColorStop(1, 'rgba(14,24,32,0.28)');
+      this.fillQuadGrad(rbb, rfb, rft, rbt, rightGrad);
+      ctx.strokeStyle = COL.wallEdge;
+      ctx.lineWidth = 2;
+      this.strokePoly([rbt, rft]);
 
-    // Left wall upper edge — lighter highlight strip
-    this.fillQuad(lbt, lft, lft, lbt, COL.wallLight); // degenerate; use stroke instead
-    ctx.strokeStyle = COL.wallEdge;
-    ctx.lineWidth = 2;
-    this.strokePoly([lbt, lft]);
+      const lft2 = this.pt(0, 0, h);
+      const lbt2 = this.pt(0, depth, h);
+      const rbt2 = this.pt(width, depth, h);
+      const rft2 = this.pt(width, 0, h);
+      this.fillQuad(lft2, lbt2, rbt2, rft2, 'rgba(12,21,32,0.45)');
+    }
 
-    // Right wall
-    const rbb = this.pt(width, depth, 0);
-    const rfb = this.pt(width, 0, 0);
-    const rft = this.pt(width, 0, h);
-    const rbt = this.pt(width, depth, h);
-
-    const rightGrad = ctx.createLinearGradient(rfb.x, rfb.y, rbb.x, rbb.y);
-    rightGrad.addColorStop(0, 'rgba(28,43,62,0.38)');
-    rightGrad.addColorStop(1, 'rgba(14,24,32,0.28)');
-    this.fillQuadGrad(rbb, rfb, rft, rbt, rightGrad);
-    ctx.strokeStyle = COL.wallEdge;
-    ctx.lineWidth = 2;
-    this.strokePoly([rbt, rft]);
-
-    // Ceiling plane — semi-transparent tint so v3 art shows through.
-    this.fillQuad(lft, lbt, rbt, rft, 'rgba(12,21,32,0.45)');
-
-    // Side-wall out lines — amber boundary running front-to-back on both walls,
-    // connecting the front-wall out line to the back-glass out line.
+    // Side-wall out lines always drawn (they define the playable boundary).
     this.setGlowLine(
       withAlpha(COL.outLine, 0.98),
       withAlpha(COL.outLineGlow, 0.75),
@@ -586,11 +660,10 @@ export class CanvasRenderer {
   private drawBackGlassFront(): void {
     const ctx = this.ctx;
     const glassImg = getImage('court_glass');
-    if (glassImg) {
-      // PNG is sized to the full canvas (1672×941). Draw it at canvas size so it
-      // aligns with the perspective court baked into the court_base images.
+    if (glassImg && !this.hasCourtArt()) {
+      // Only draw glass overlay when no art is loaded — art already has the back wall
       ctx.drawImage(glassImg, 0, 0, GAME_WIDTH, GAME_HEIGHT);
-    } else {
+    } else if (!glassImg) {
       // Procedural fallback until the PNG loads.
       const { width, depth } = COURT;
       const h = WALL_HEIGHT;
@@ -644,37 +717,36 @@ export class CanvasRenderer {
     const br = this.pt(width, depth);
     const bl = this.pt(0, depth);
 
-    // Base floor gradient — semi-transparent so v3 art shows through.
-    const floorGrad = ctx.createLinearGradient(tl.x, tl.y, bl.x, bl.y);
-    floorGrad.addColorStop(0, 'rgba(22,40,36,0.52)');
-    floorGrad.addColorStop(0.4, 'rgba(30,52,48,0.38)');
-    floorGrad.addColorStop(1, 'rgba(21,36,32,0.28)');
-    ctx.beginPath();
-    ctx.moveTo(tl.x, tl.y);
-    ctx.lineTo(tr.x, tr.y);
-    ctx.lineTo(br.x, br.y);
-    ctx.lineTo(bl.x, bl.y);
-    ctx.closePath();
-    ctx.fillStyle = floorGrad;
-    ctx.fill();
+    if (!this.hasCourtArt()) {
+      // Base floor gradient — only when no art loaded
+      const floorGrad = ctx.createLinearGradient(tl.x, tl.y, bl.x, bl.y);
+      floorGrad.addColorStop(0, 'rgba(22,40,36,0.52)');
+      floorGrad.addColorStop(0.4, 'rgba(30,52,48,0.38)');
+      floorGrad.addColorStop(1, 'rgba(21,36,32,0.28)');
+      ctx.beginPath();
+      ctx.moveTo(tl.x, tl.y);
+      ctx.lineTo(tr.x, tr.y);
+      ctx.lineTo(br.x, br.y);
+      ctx.lineTo(bl.x, bl.y);
+      ctx.closePath();
+      ctx.fillStyle = floorGrad;
+      ctx.fill();
 
-    // Service area tint — two boxes with slightly different tint
-    const midX = COURT.width / 2;
-    this.fillFloorBand(SERVE_LINE_Y, depth, 'rgba(30,60,50,0.20)');
-    // Left service box lighter
-    this.fillFloorQuad(
-      { x: 0, y: SERVE_LINE_Y }, { x: midX, y: SERVE_LINE_Y },
-      { x: midX, y: depth }, { x: 0, y: depth },
-      'rgba(60,160,100,0.08)',
-    );
-    // Right service box slightly different
-    this.fillFloorQuad(
-      { x: midX, y: SERVE_LINE_Y }, { x: COURT.width, y: SERVE_LINE_Y },
-      { x: COURT.width, y: depth }, { x: midX, y: depth },
-      'rgba(80,130,160,0.08)',
-    );
+      const midX = COURT.width / 2;
+      this.fillFloorBand(SERVE_LINE_Y, depth, 'rgba(30,60,50,0.20)');
+      this.fillFloorQuad(
+        { x: 0, y: SERVE_LINE_Y }, { x: midX, y: SERVE_LINE_Y },
+        { x: midX, y: depth }, { x: 0, y: depth },
+        'rgba(60,160,100,0.08)',
+      );
+      this.fillFloorQuad(
+        { x: midX, y: SERVE_LINE_Y }, { x: COURT.width, y: SERVE_LINE_Y },
+        { x: COURT.width, y: depth }, { x: midX, y: depth },
+        'rgba(80,130,160,0.08)',
+      );
+    }
 
-    // Glow effect under the short service line — brighter.
+    // Glow effect under the short service line — always shown
     const slA = this.pt(0, SERVE_LINE_Y);
     const slB = this.pt(width, SERVE_LINE_Y);
     ctx.save();
@@ -688,11 +760,11 @@ export class CanvasRenderer {
     ctx.stroke();
     ctx.restore();
 
-    // Court boundary lines
+    // Court boundary lines — always drawn (gameplay reference)
     this.setGlowLine(COL.line, COL.lineGlow, 3, 8);
     this.strokePoly([tl, tr, br, bl, tl]);
     this.clearGlow();
-    // Service box lines — brighter than boundary
+    // Service box lines
     this.setGlowLine('rgba(140,240,180,0.95)', 'rgba(80,220,140,0.55)', 3, 10);
     this.strokeLogicLine({ x: 0, y: SERVE_LINE_Y }, { x: COURT.width, y: SERVE_LINE_Y });
     this.strokeLogicLine({ x: COURT.width / 2, y: SERVE_LINE_Y }, { x: COURT.width / 2, y: depth });
@@ -718,59 +790,58 @@ export class CanvasRenderer {
     const { width } = COURT;
     const h = WALL_HEIGHT;
 
-    // Wall gradient — semi-transparent so v3 art depth shows through.
-    const wGrad = ctx.createLinearGradient(
-      this.pt(width / 2, 0, h).x, this.pt(width / 2, 0, h).y,
-      this.pt(width / 2, 0, 0).x, this.pt(width / 2, 0, 0).y,
-    );
-    wGrad.addColorStop(0, 'rgba(19,30,46,0.55)');
-    wGrad.addColorStop(0.5, 'rgba(30,47,70,0.45)');
-    wGrad.addColorStop(1, 'rgba(21,30,44,0.55)');
+    if (!this.hasCourtArt()) {
+      // Wall gradient fill — only when no art loaded
+      const wGrad = ctx.createLinearGradient(
+        this.pt(width / 2, 0, h).x, this.pt(width / 2, 0, h).y,
+        this.pt(width / 2, 0, 0).x, this.pt(width / 2, 0, 0).y,
+      );
+      wGrad.addColorStop(0, 'rgba(19,30,46,0.55)');
+      wGrad.addColorStop(0.5, 'rgba(30,47,70,0.45)');
+      wGrad.addColorStop(1, 'rgba(21,30,44,0.55)');
+      const wTL = this.pt(0, 0, 0);
+      const wTR = this.pt(width, 0, 0);
+      const wBR = this.pt(width, 0, h);
+      const wBL = this.pt(0, 0, h);
+      ctx.beginPath();
+      ctx.moveTo(wTL.x, wTL.y);
+      ctx.lineTo(wTR.x, wTR.y);
+      ctx.lineTo(wBR.x, wBR.y);
+      ctx.lineTo(wBL.x, wBL.y);
+      ctx.closePath();
+      ctx.fillStyle = wGrad;
+      ctx.fill();
 
-    const wTL = this.pt(0, 0, 0);
-    const wTR = this.pt(width, 0, 0);
-    const wBR = this.pt(width, 0, h);
-    const wBL = this.pt(0, 0, h);
-    ctx.beginPath();
-    ctx.moveTo(wTL.x, wTL.y);
-    ctx.lineTo(wTR.x, wTR.y);
-    ctx.lineTo(wBR.x, wBR.y);
-    ctx.lineTo(wBL.x, wBL.y);
-    ctx.closePath();
-    ctx.fillStyle = wGrad;
-    ctx.fill();
+      this.fillQuad(
+        this.pt(0, 0, 0), this.pt(width, 0, 0),
+        this.pt(width, 0, TIN_HEIGHT), this.pt(0, 0, TIN_HEIGHT),
+        'rgba(160,40,40,0.35)',
+      );
+    }
 
-    // Tin fill (bottom band below TIN_HEIGHT).
-    this.fillQuad(
-      this.pt(0, 0, 0),
-      this.pt(width, 0, 0),
-      this.pt(width, 0, TIN_HEIGHT),
-      this.pt(0, 0, TIN_HEIGHT),
-      'rgba(160,40,40,0.35)',
-    );
-    // Tin line — red glow.
-    this.setGlowLine(COL.tin, COL.tinGlow, 5, 12);
-    this.strokeWallLine(TIN_HEIGHT);
-    this.clearGlow();
+    if (!this.hasCourtArt()) {
+      // Tin and service lines — skip when art already shows them
+      this.setGlowLine(COL.tin, COL.tinGlow, 5, 12);
+      this.strokeWallLine(TIN_HEIGHT);
+      this.clearGlow();
 
-    // Front-wall SERVICE line — red, clearly above tin, clearly below out line.
-    // This is the "middle red line" the user wants raised and prominent.
-    this.setGlowLine(COL.serviceLine, COL.serviceLineGlow, 4, 10);
-    this.strokeWallLine(FRONT_SERVICE_LINE_Z);
-    this.clearGlow();
+      this.setGlowLine(COL.serviceLine, COL.serviceLineGlow, 4, 10);
+      this.strokeWallLine(FRONT_SERVICE_LINE_Z);
+      this.clearGlow();
+    }
 
-    // Out line (top boundary) — amber, thicker + stronger glow (task #14).
+    // Out line (top boundary) — always drawn as gameplay reference
     this.setGlowLine(COL.outLine, COL.outLineGlow, 6, 18);
     this.strokeWallLine(FRONT_OUT_HEIGHT);
     this.clearGlow();
-    // Out zone fill above the out line — subtle amber tint so the forbidden area is obvious
-    this.fillQuad(
-      this.pt(0, 0, FRONT_OUT_HEIGHT),
-      this.pt(COURT.width, 0, FRONT_OUT_HEIGHT),
-      this.pt(COURT.width, 0, WALL_HEIGHT),
-      this.pt(0, 0, WALL_HEIGHT),
-      'rgba(200,120,0,0.12)',
-    );
+
+    if (!this.hasCourtArt()) {
+      this.fillQuad(
+        this.pt(0, 0, FRONT_OUT_HEIGHT), this.pt(COURT.width, 0, FRONT_OUT_HEIGHT),
+        this.pt(COURT.width, 0, WALL_HEIGHT), this.pt(0, 0, WALL_HEIGHT),
+        'rgba(200,120,0,0.12)',
+      );
+    }
   }
 
   /** Stroke a horizontal line across the front wall at logic height z. */
@@ -815,13 +886,41 @@ export class CanvasRenderer {
    * handle all geometry so we never get double-lines or stray image artefacts.
    */
   private drawCourtBaseArt(): void {
-    const img = getImage('court_material_base') ?? getImage('court_base_v3') ?? getImage('court_base');
+    const img = getImage('court_bg_no_glass') ?? getImage('court_material_base') ?? getImage('court_base_v3') ?? getImage('court_base');
     if (!img) return;
     const ctx = this.ctx;
     ctx.save();
-    ctx.globalAlpha = 0.88;
+    ctx.globalAlpha = 1.0;
     ctx.globalCompositeOperation = 'source-over';
     ctx.drawImage(img, 0, 0, GAME_WIDTH, GAME_HEIGHT);
+    ctx.restore();
+    // Cover the scoreboard baked into the art image — real scores come from the DOM HUD.
+    if (getImage('court_bg_no_glass')) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(6,8,15,0.97)';
+      ctx.fillRect(360, 52, 560, 140);
+      ctx.restore();
+    }
+  }
+
+  /** Returns true when the generated court background art is loaded (skip procedural fills). */
+  private hasCourtArt(): boolean {
+    return getImage('court_bg_no_glass') !== null;
+  }
+
+  private drawAudienceArt(): void {
+    // court_bg_no_glass already contains audience — skip separate overlay when it's loaded
+    if (this.hasCourtArt()) return;
+    const img = getImage('audience_side');
+    if (!img) return;
+    const ctx = this.ctx;
+    const x = GAME_WIDTH * 0.12;
+    const y = GAME_HEIGHT * 0.05;
+    const w = GAME_WIDTH * 0.76;
+    const h = GAME_HEIGHT * 0.22;
+    ctx.save();
+    ctx.globalAlpha = 0.75;
+    ctx.drawImage(img, x, y, w, h);
     ctx.restore();
   }
 
@@ -1225,18 +1324,31 @@ export class CanvasRenderer {
     let crop: Crop;
 
     if (isP1) {
-      // Forward/lunge sheet: use when diving or moving fast toward front court.
-      const speedY = pl.vel.y;
-      const useLunge = diving || speedY < -1.5;
-
-      if (useLunge) {
-        img = getImage('player_lunge');
-        if (!img) return false;
-        crop = diving ? PLAYER_LUNGE_CROPS.dive : PLAYER_LUNGE_CROPS.lunge;
+      // Prefer back-view sheet for p1 (player faces front wall, back to camera).
+      const backviewImg = getImage('player_backview');
+      if (backviewImg) {
+        img = backviewImg;
+        if (diving) {
+          crop = PLAYER_BACKVIEW_CROPS.dive;
+        } else if (swinging) {
+          crop = PLAYER_BACKVIEW_CROPS.swing;
+        } else {
+          const speed = Math.hypot(pl.vel.x, pl.vel.y);
+          crop = speed > 1.0 ? PLAYER_BACKVIEW_CROPS.run : PLAYER_BACKVIEW_CROPS.ready;
+        }
       } else {
-        img = getImage('player_lateral');
-        if (!img) return false;
-        crop = swinging ? PLAYER_LATERAL_CROPS.swing : PLAYER_LATERAL_CROPS.ready;
+        // Fallback to old sheets if backview not loaded yet
+        const speedY = pl.vel.y;
+        const useLunge = diving || speedY < -1.5;
+        if (useLunge) {
+          img = getImage('player_lunge');
+          if (!img) return false;
+          crop = diving ? PLAYER_LUNGE_CROPS.dive : PLAYER_LUNGE_CROPS.lunge;
+        } else {
+          img = getImage('player_lateral');
+          if (!img) return false;
+          crop = swinging ? PLAYER_LATERAL_CROPS.swing : PLAYER_LATERAL_CROPS.ready;
+        }
       }
     } else {
       img = getImage('opponent_core');

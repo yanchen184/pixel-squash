@@ -34,6 +34,7 @@ import {
   HITSTOP_PERFECT,
   HITSTOP_GOOD,
   HITSTOP_WEAK,
+  HITSTOP_FRONT_WALL,
   MOMENTUM_MAX,
   PLAYER_SPEED,
   PLAYER_MARGIN,
@@ -78,6 +79,13 @@ export function step(state: GameState, inA: InputFrame, inB: InputFrame): GameSt
 
   const frame = state.frame + 1;
 
+  // PracticeRenderer shows the front wall — camera faces forward so the court depth is
+  // flipped visually: screen-up = toward back wall (pos.y increases), screen-down = toward
+  // front wall (pos.y decreases). Flip W/S for the human player so W moves toward back wall.
+  if (state.gameMode === 'practice') {
+    inA = { ...inA, moveY: (inA.moveY === 0 ? 0 : inA.moveY < 0 ? 1 : -1) as -1 | 0 | 1 };
+  }
+
   // ---- Hit-stop: the whole sim is frozen while > 0 (weight on impact). ----
   if (state.hitstop > 0) {
     return { ...state, frame, hitstop: state.hitstop - 1 };
@@ -97,12 +105,17 @@ export function step(state: GameState, inA: InputFrame, inB: InputFrame): GameSt
     if (state.phase === 'point') return { ...resetForServe(state, state.server), frame };
     // Human server must choose a service box before the serve launches.
     if (state.awaitingServeChoice) {
-      // Box chosen — start a 40-frame prep window so the overlay can show "ready"
-      // before the serve launches. The box is locked in; next tick timer > 0 path
-      // will count down, then fall through to launchServe below.
+      // Practice mode: skip box-choice overlay — auto-assign box and go straight to toss.
+      if (state.gameMode === 'practice') {
+        return { ...state, frame, awaitingServeChoice: false, serveSubPhase: 'toss' };
+      }
       if (inA.serveLeft)  return { ...state, frame, serveBox: 0, awaitingServeChoice: false, phaseTimer: 40 };
       if (inA.serveRight) return { ...state, frame, serveBox: 1, awaitingServeChoice: false, phaseTimer: 40 };
       return { ...state, frame }; // keep waiting
+    }
+    // Practice mode: 3-step manual serve flow (toss → swing).
+    if (state.gameMode === 'practice' && state.server === 0) {
+      return stepPracticeServe({ ...state, frame }, inA);
     }
     return launchServe({ ...state, frame });
   }
@@ -129,9 +142,23 @@ export function step(state: GameState, inA: InputFrame, inB: InputFrame): GameSt
 
   // Wall bounces (and tin/out fault detection) come AFTER swings, so a fresh hit this
   // tick gets a clean trajectory before we test it against the walls.
+  const prevLastWall = state.shuttle.lastWall;
   shuttle = applyWalls(shuttle, state.shuttle);
+  // Front-wall impact this tick → freeze for a few frames so it feels weighty.
+  const frontWallHit = prevLastWall !== 'front' && shuttle.lastWall === 'front';
+  if (frontWallHit) hitstop = Math.max(hitstop, HITSTOP_FRONT_WALL);
   shuttle = applyFloorBounce(shuttle, state.shuttle);
   shuttle = predictLanding(shuttle);
+
+  // Practice mode: first front-wall hit → freeze ball on the wall so player can read
+  // the rebound trajectory, then allow next serve.
+  if (state.gameMode === 'practice' && frontWallHit) {
+    // Compute where the rebound would land before freezing velocity
+    const reboundLanding = predictLanding({ ...shuttle });
+    const frozenShuttle = { ...reboundLanding, vel: { x: 0, y: 0 }, vz: 0, inPlay: false };
+    return { ...state, frame, p1, p2, shuttle: frozenShuttle, hitstop: 0, rallyHitCount,
+      serveSubPhase: 'toss' as const, phase: 'serve' as const, phaseTimer: 0 };
+  }
 
   // Scoring: a dead-ball reason was set this tick (tin/out/double-bounce/not-front-wall).
   if (shuttle.inPlay && shuttle.deadReason !== null) {
@@ -698,14 +725,252 @@ function solveArcToWall(
   return { vx, vy, vz };
 }
 
+export type PathPoint = { x: number; y: number; z: number; wall?: 'front' | 'back' | 'left' | 'right' | 'floor' };
+
+/**
+ * Simulate ball trajectory from a starting state, sampling points every N ticks.
+ * Returns path points (3D game-space) and marks wall/floor contacts.
+ * Stops after floor landing (first bounce after front wall hit) or 400 ticks.
+ */
+export function sampleServePath(
+  startPos: { x: number; y: number },
+  startZ: number,
+  vel: { x: number; y: number },
+  vz: number,
+  sampleEvery = 3,
+): PathPoint[] {
+  const points: PathPoint[] = [{ x: startPos.x, y: startPos.y, z: startZ }];
+  let x = startPos.x, y = startPos.y, z = startZ;
+  let vx = vel.x, vy = vel.y, curVz = vz;
+  let prevY = y, prevZ = z;
+  const MAX = 400;
+  for (let t = 1; t <= MAX; t++) {
+    curVz -= GRAVITY;
+    x += vx;
+    y += vy;
+    z += curVz;
+    vx *= SHUTTLE_DRAG;
+    vy *= SHUTTLE_DRAG;
+
+    // Front wall
+    if (prevY > 0 && y <= 0) {
+      const span = prevY - y;
+      const frac = span > 1e-6 ? prevY / span : 0;
+      const hitZ = prevZ + (z - prevZ) * frac;
+      points.push({ x, y: 0, z: hitZ, wall: 'front' });
+      vy = Math.abs(vy) * FRONT_WALL_BOUNCE;
+      y = EPS;
+    }
+    // Back wall
+    if (y >= COURT.depth) {
+      points.push({ x, y: COURT.depth, z, wall: 'back' });
+      vy = -Math.abs(vy) * WALL_BOUNCE;
+      y = COURT.depth - EPS;
+    }
+    // Side walls
+    if (x <= 0) {
+      points.push({ x: 0, y, z, wall: 'left' });
+      vx = Math.abs(vx) * WALL_BOUNCE;
+      x = EPS;
+    } else if (x >= COURT.width) {
+      points.push({ x: COURT.width, y, z, wall: 'right' });
+      vx = -Math.abs(vx) * WALL_BOUNCE;
+      x = COURT.width - EPS;
+    }
+    // Floor
+    if (z <= 0 && curVz <= 0) {
+      points.push({ x, y, z: 0, wall: 'floor' });
+      break;
+    }
+    if (t % sampleEvery === 0) points.push({ x, y, z });
+    prevY = y;
+    prevZ = z;
+  }
+  return points;
+}
+
+/**
+ * Practice-mode 3-step serve:
+ *   'choice'  — pick L/R box (reuses awaitingServeChoice, handled above; lands here with null after countdown)
+ *   'toss'    — press any swing key → ball pops up (small toss arc)
+ *   'swing'   — ball in the air; press swing key → hit with that stroke type
+ */
+function stepPracticeServe(state: GameState, inA: InputFrame): GameState {
+  const sub = state.serveSubPhase;
+
+  // ── toss: waiting for player to choose stroke type ──
+  if (sub === 'toss') {
+    if (inA.swing) {
+      // First press → show preview path, ball stays frozen at player position
+      const path = computePreviewPath(state.p1.pos, inA.stroke, state);
+      return {
+        ...state,
+        serveSubPhase: 'preview',
+        previewPath: path,
+        previewStroke: inA.stroke,
+      };
+    }
+    const p1s = movePlayer(state.p1, inA, 0, state.shuttle, state);
+    return { ...state, p1: p1s };
+  }
+
+  // ── preview: path shown, waiting for second press to launch ──
+  if (sub === 'preview') {
+    if (inA.swing) {
+      // Second press → launch
+      const stroke = inA.stroke;
+      const fakeShuttle = {
+        pos: { x: state.p1.pos.x, y: state.p1.pos.y },
+        z: 80,
+        vel: { x: 0, y: 0 }, vz: 0,
+        lastHitBy: null as null, inPlay: true,
+        bouncesSinceWall: 0, hitFrontWall: false,
+        lastWall: null as null, deadReason: null as null,
+        landing: null as null, landingEta: 0,
+      };
+      return launchPracticeServe(
+        { ...state, previewPath: null, previewStroke: null },
+        stroke,
+        fakeShuttle,
+      );
+    }
+    // Player can also cancel preview by moving — allow movement
+    const p1s = movePlayer(state.p1, inA, 0, state.shuttle, state);
+    return { ...state, p1: p1s };
+  }
+
+  // ── swing: legacy — kept for compatibility, now unused in practice flow ──
+  if (sub === 'swing') {
+    let shuttle = stepBall(state.shuttle);
+    if (shuttle.z <= 30) {
+      const p1s = movePlayer(state.p1, inA, 0, shuttle, state);
+      return { ...state, serveSubPhase: 'toss',
+        shuttle: { ...shuttle, inPlay: false, z: 60, vel: { x: 0, y: 0 }, vz: 0 }, p1: p1s };
+    }
+    if (inA.swing) return launchPracticeServe(state, inA.stroke, shuttle);
+    const p1s = movePlayer(state.p1, inA, 0, shuttle, state);
+    return { ...state, shuttle, p1: p1s };
+  }
+
+  return launchServe(state);
+}
+
+/** Compute serve preview path from player's current position for the given stroke. */
+function computePreviewPath(
+  playerPos: { x: number; y: number },
+  strokeId: StrokeId,
+  state: GameState,
+): PathPoint[] {
+  const z0 = 80;
+  const receiverSide = state.serveBox === 0 ? 0.7 : 0.3;
+  const straightSide = state.serveBox === 0 ? 0.3 : 0.7;
+  // boast: aim past the near side wall so ball bounces off it first → front wall
+  // serveBox 0 (left): player near left side → aim RIGHT wall (tx > COURT.width) → front
+  // serveBox 1 (right): player near right side → aim LEFT wall (tx < 0) → front
+  const boastSide = state.serveBox === 0 ? 1.35 : -0.35; // tx overflows to side wall
+
+  let wallZ: number, tof1: number, aimX: number;
+  switch (strokeId) {
+    case 'kill':  wallZ = WALL_HEIGHT * 0.42; tof1 = 18; aimX = receiverSide; break;
+    case 'lob':   wallZ = WALL_HEIGHT * 0.85; tof1 = 28; aimX = 0.5;          break; // straight, high → back wall
+    case 'drop':  wallZ = WALL_HEIGHT * 0.48; tof1 = 26; aimX = straightSide; break;
+    case 'boast': wallZ = WALL_HEIGHT * 0.52; tof1 = 22; aimX = boastSide;    break; // side wall first
+    default:      wallZ = WALL_HEIGHT * 0.58; tof1 = 28; aimX = receiverSide;
+  }
+  const tx = COURT.width * aimX;
+  const vx = (tx - playerPos.x) / tof1;
+  const vy = (0 - playerPos.y) / tof1;
+  const vz = (wallZ - z0 + 0.5 * GRAVITY * tof1 * tof1) / tof1;
+  return sampleServePath(playerPos, z0, { x: vx, y: vy }, vz, 4);
+}
+
+/**
+ * Launch a practice serve with stroke-type variations:
+ *   kill  → low fast serve that hugs the front wall (opponent scrambles)
+ *   lob   → high floaty serve to back corner
+ *   drive → standard mid-height serve (default)
+ *   drop  → angled softer serve toward front corner
+ *   boast → same as drive for serves (boast is a rally shot)
+ */
+function launchPracticeServe(state: GameState, strokeId: StrokeId, tossedBall: ShuttleState): GameState {
+  const pos: Vec2 = { x: tossedBall.pos.x, y: tossedBall.pos.y };
+  const z0 = tossedBall.z > 40 ? tossedBall.z : 80; // ensure reasonable toss height
+
+  // Each stroke targets a specific front-wall height and rebound landing zone.
+  // tof1 = frames to reach front wall; wallZ = height at front wall (game-space px)
+  // landingY = where the ball should land after rebounding (y=0 is front wall, depth=far)
+  // aimX = left/right fraction of court width for the wall strike
+  const receiverSide = state.serveBox === 0 ? 0.7 : 0.3;
+  const straightSide = state.serveBox === 0 ? 0.3 : 0.7;
+  const boastSide    = state.serveBox === 0 ? 1.35 : -0.35; // overshoot → side wall first
+
+  let wallZ: number;
+  let tof1: number;
+  let aimX: number;
+
+  switch (strokeId) {
+    case 'kill':  wallZ = WALL_HEIGHT * 0.42; tof1 = 18; aimX = receiverSide; break;
+    case 'lob':   wallZ = WALL_HEIGHT * 0.85; tof1 = 28; aimX = 0.5;          break;
+    case 'drop':  wallZ = WALL_HEIGHT * 0.48; tof1 = 26; aimX = straightSide; break;
+    case 'boast': wallZ = WALL_HEIGHT * 0.52; tof1 = 22; aimX = boastSide;    break;
+    default:      wallZ = WALL_HEIGHT * 0.58; tof1 = 28; aimX = receiverSide;
+  }
+
+  const tx = COURT.width * aimX;
+
+  // Velocity to reach front wall (y=0) in tof1 frames
+  const vx = (tx - pos.x) / tof1;
+  const vy = (0 - pos.y) / tof1;   // negative (toward front wall)
+  const vz = (wallZ - z0 + 0.5 * GRAVITY * tof1 * tof1) / tof1;
+
+  // After front-wall bounce: vy flips to positive (toward back), attenuated by FRONT_WALL_BOUNCE
+  // We want ball to land at landingY. Time to reach floor after bounce:
+  //   landingY = vy_after * tof2  →  tof2 = landingY / vy_after
+  // We don't re-set vy — physics will handle the bounce. The tof1 already gives correct vy.
+  // Trust FRONT_WALL_BOUNCE (0.95) to carry the ball naturally. The landingY above is design
+  // intent; the actual landing is physics. The key is choosing tof1 that puts enough vy.
+  // vy at wall = vy = -pos.y/tof1; after bounce = pos.y/tof1 * 0.95; land at ≈ pos.y * 0.95
+  // So to reach landingY > pos.y we need smaller tof1 (faster = more energy).
+  // The values above are tuned for these landing zones.
+
+  const shuttle: ShuttleState = predictLanding({
+    pos,
+    z: z0,
+    vel: { x: vx, y: vy },
+    vz,
+    lastHitBy: state.server,
+    inPlay: true,
+    bouncesSinceWall: 0,
+    hitFrontWall: false,
+    lastWall: null,
+    deadReason: null,
+    landing: null,
+    landingEta: 0,
+  });
+
+  return { ...state, phase: 'rally', serveSubPhase: null, tossZ: 0, shuttle };
+}
+
 function launchServe(state: GameState): GameState {
-  const serverPlayer = state.server === 0 ? state.p1 : state.p2;
-  const pos: Vec2 = { x: serverPlayer.pos.x, y: serverPlayer.pos.y };
+  // Use a fixed serve origin inside the service box, close to the T.
+  // Squash serves are made from close to the T — the front half of the service box.
+  const midX = COURT.width / 2;
+  const serveOriginX = state.serveBox === 0 ? midX * 0.55 : midX * 1.45;
+  const pos: Vec2 = { x: serveOriginX, y: SERVE_LINE_Y * 0.65 }; // ~357px: front of service box
   // A serve strikes the front wall mid-high; the rebound must land in the diagonally
   // opposite back quarter (the receiver's box). Aim at a front-wall point biased toward
   // the receiver's side so the bounce carries diagonally back.
   const target = serveTarget(state.server, state.serveBox);
-  const launch = solveArcToWall(pos, 110, target, STROKES.serve);
+  // Compute velocities directly so the ball reaches the front wall at a legal height.
+  // solveArcToWall with APEX_CEIL can produce a vz that makes z < TIN_HEIGHT at impact.
+  // Instead, solve using only the floor-to-wall geometry:
+  //   - horizontal: vx/vy solve for front wall at target.x, y=0 in tof frames
+  //   - vertical: solve z(tof) = target.z with uncapped vz (serve high arc is allowed)
+  const tof = 30; // fixed fast tof: fast serve that clears tin and carries ball to back of court
+  const vx = (target.x - pos.x) / tof;
+  const vy = (0 - pos.y) / tof; // y=0 is the front wall
+  const vz = (target.z - 110 + 0.5 * GRAVITY * tof * tof) / tof;
+  const launch = { vx, vy, vz };
   const shuttle: ShuttleState = predictLanding({
     pos,
     z: 110,

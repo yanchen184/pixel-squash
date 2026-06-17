@@ -21,12 +21,16 @@ export type AssetKey =
   | 'court_base'
   | 'court_base_v3'
   | 'court_material_base'
+  | 'court_bg_no_glass'
   | 'court_lines'
   | 'player_core'
   | 'player_lunge'
   | 'player_lateral'
+  | 'player_backview'
   | 'opponent_core'
-  | 'court_glass';
+  | 'court_glass'
+  | 'audience_side'
+  | 'player_movement';
 
 /**
  * Resolve asset URLs via `new URL(path, import.meta.url)` so Vite treats each
@@ -42,12 +46,16 @@ const ASSET_URLS: Record<AssetKey, string> = {
   court_base:              new URL('./generated/court/court_four_wall_base_v2_connected_outlines.png', import.meta.url).href,
   court_base_v3:           new URL('./generated/court/court_four_wall_base_v3_playable.png',           import.meta.url).href,
   court_material_base:     new URL('./generated/court/court_material_base_v4_no_lines.png',            import.meta.url).href,
+  court_bg_no_glass:       new URL('./generated/court/court_bg_no_glass_v1.png',                       import.meta.url).href,
   court_lines:             new URL('./generated/court/court_lines_connected_outlines_v2.png',         import.meta.url).href,
   player_core:             new URL('./generated/player/player_core_moves_sheet_v1.png',               import.meta.url).href,
   player_lunge:            new URL('./generated/player/player_forward_lunge_sheet_v1.png',            import.meta.url).href,
   player_lateral:          new URL('./generated/player/player_lateral_rear_sheet_v1.png',             import.meta.url).href,
+  player_backview:         new URL('./generated/player/player_backview_sheet_v1.png',                 import.meta.url).href,
   opponent_core:           new URL('./generated/player/opponent_core_moves_sheet_v1.png',             import.meta.url).href,
   court_glass:             new URL('./generated/court/court_glass_foreground_v1.png',                  import.meta.url).href,
+  audience_side:           new URL('./generated/audience/audience_side_v2.png',                        import.meta.url).href,
+  player_movement:         new URL('./generated/player/player_movement_sheet_v1.png',                  import.meta.url).href,
 };
 
 // ---- Crop rectangles ----
@@ -141,6 +149,20 @@ export const PLAYER_LATERAL_CROPS = {
   ready:    playerCrop(0, 0), // low ready stance
   lateral:  playerCrop(1, 0), // lateral dash
   swing:    playerCrop(2, 1), // swing / forehand
+} as const;
+
+/**
+ * player_backview_sheet_v1 — dark navy back-view player.
+ * 4-column × 3-row grid (same 418×314 cell size).
+ * Row 0: run / lateral dash poses.
+ * Row 1: ready stance / forehand swing.
+ * Row 2: dive / lunge.
+ */
+export const PLAYER_BACKVIEW_CROPS = {
+  run:      playerCrop(2, 0), // lateral run (row 0 col 2)
+  ready:    playerCrop(1, 1), // ready stance (row 1 col 1)
+  swing:    playerCrop(3, 1), // swing (row 1 col 3)
+  dive:     playerCrop(0, 2), // dive / lunge (row 2 col 0)
 } as const;
 
 /**

@@ -86,11 +86,15 @@ describe('serve flow', () => {
   it('a served ball reaches the front wall valid zone (a legal serve)', () => {
     // From serve, run far enough that the serve has struck the front wall. A legal
     // serve marks hitFrontWall true before it ever lands (the squash legality flag).
-    let s = advance(createInitialState(), 50); // into rally, ball launched
+    // Use advance() so that awaitingServeChoice is handled throughout.
+    let s = createInitialState();
     let sawFrontWall = false;
-    for (let i = 0; i < 120 && s.phase === 'rally'; i++) {
-      s = step(s, NO_INPUT, NO_INPUT);
-      if (s.shuttle.hitFrontWall) sawFrontWall = true;
+    for (let i = 0; i < 300; i++) {
+      const inp = s.awaitingServeChoice ? SERVE_LEFT : NO_INPUT;
+      s = step(s, inp, NO_INPUT);
+      if (s.shuttle.inPlay && s.shuttle.hitFrontWall) sawFrontWall = true;
+      if (sawFrontWall) break;
+      if (s.phase === 'point') break; // point ended before front-wall hit is unexpected
     }
     expect(sawFrontWall).toBe(true);
   });
@@ -131,7 +135,8 @@ describe('win condition', () => {
   it('declares a winner at POINTS_TO_WIN with a 2-point lead, then freezes the sim', () => {
     let s = createInitialState();
     // No-input rallies always die -> points accrue until someone wins (PAR-11, win by 2).
-    for (let i = 0; i < 12000 && s.winner === null; i++) {
+    // phaseTimer:40 prep window (new serve UI) adds ~40 frames per serve; 23 points × 40 = ~1k extra.
+    for (let i = 0; i < 20000 && s.winner === null; i++) {
       const inp = s.awaitingServeChoice ? SERVE_LEFT : NO_INPUT;
       s = step(s, inp, NO_INPUT);
     }
@@ -182,7 +187,7 @@ describe('boast (side-wall → front-wall)', () => {
     let nearBack = false;
     let hitFront = false;
 
-    for (let i = 0; i < 3000; i++) {
+    for (let i = 0; i < 6000; i++) {
       const inp = s.awaitingServeChoice ? SERVE_LEFT : NO_INPUT;
       s = step(s, inp, NO_INPUT);
       if (s.shuttle.inPlay) {
