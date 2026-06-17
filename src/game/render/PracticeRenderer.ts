@@ -899,8 +899,13 @@ export class PracticeRenderer {
         boast: '三星 (側牆)', lob: '高吊 (玻璃牆)',
       };
       const name = strokeName[s.previewStroke ?? 'drive'] ?? s.previewStroke;
-      this.drawServeHint(ctx, `【${name}】再按任意鍵發球`, '#60ff90',
-        '確認軌跡後按揮拍鍵發出');
+      const stops = (s.previewPath ?? []).filter(p => p.wall != null);
+      const step = s.previewStep;
+      const remaining = stops.length - 1 - step;
+      const stepLabel = step < 0 ? '起點' : `第${step + 1}面牆`;
+      const mLabel = remaining > 0 ? `M→下一段 (剩${remaining})` : 'M→發球！';
+      this.drawServeHint(ctx, `【${name}】${stepLabel}  揮拍可打球`, '#60ff90',
+        mLabel + '  J/K/L/U/Space=揮拍');
     } else if (s.serveSubPhase === 'swing') {
       this.drawServeHint(ctx, '【揮拍】再按揮拍鍵打出！', '#60ff90',
         'J=低快  K=截擊  L=標準  U=三星  Space=高吊');

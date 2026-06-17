@@ -56,6 +56,8 @@ export type InputFrame = {
    */
   serveLeft: boolean;
   serveRight: boolean;
+  /** Practice mode: advance ball to next path stop (M key). */
+  nextStop?: boolean;
   /**
    * AI-only unforced error on THIS swing. The human faults from real swing timing
    * (`timingAim`); the AI has no timing, so it injects a SYNTHETIC mistime here to

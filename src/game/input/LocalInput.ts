@@ -38,9 +38,10 @@ export class LocalInput implements InputSource {
   private heldLast = new Set<string>();
   /** On-screen swing button held state last sample (its own press edge). */
   private touchSwingLast = false;
+  private nextStopLast = false;
   private onDown = (e: KeyboardEvent) => {
     this.held.add(e.code);
-    if (SWING_KEYS.has(e.code) || MOVE_KEYS.has(e.code)) e.preventDefault();
+    if (SWING_KEYS.has(e.code) || MOVE_KEYS.has(e.code) || e.code === 'KeyM') e.preventDefault();
   };
   private onUp = (e: KeyboardEvent) => {
     this.held.delete(e.code);
@@ -81,6 +82,11 @@ export class LocalInput implements InputSource {
     this.heldLast.clear();
     for (const [code] of STROKE_KEYS) if (this.held.has(code)) this.heldLast.add(code);
 
+    // Practice mode: M key advances ball to next path stop (press edge).
+    const nextStopHeld = this.held.has('KeyM');
+    const nextStop = nextStopHeld && !this.nextStopLast;
+    this.nextStopLast = nextStopHeld;
+
     // Dive (魚躍救球): Shift, or the on-screen dive button.
     const dive =
       this.held.has('ShiftLeft') ||
@@ -109,6 +115,7 @@ export class LocalInput implements InputSource {
       aimY: 0,
       serveLeft: left,
       serveRight: right,
+      nextStop,
     };
   }
 

@@ -157,6 +157,8 @@ export type GameState = {
   previewPath: import('@/game/sim/simulate').PathPoint[] | null;
   /** Which stroke type is being previewed. */
   previewStroke: import('@/data/strokes').StrokeId | null;
+  /** Index into previewPath wall-contact stops; ball is shown at this stop. -1 = at player. */
+  previewStep: number;
 };
 
 // ---- Logic-space constants (deterministic) ----
@@ -290,6 +292,7 @@ export function createInitialState(): GameState {
       gameMode: 'match',
       previewPath: null,
       previewStroke: null,
+      previewStep: -1,
     },
     0,
   );
@@ -329,6 +332,7 @@ export function resetForServe(state: GameState, server: Side): GameState {
     serveSubPhase: state.gameMode === 'practice' ? 'toss' : null,
     previewPath: null,
     previewStroke: null,
+    previewStep: -1,
     phaseTimer: 45,
     p1: { ...state.p1, pos: { ...makePlayer(0).pos }, facing: 'up', diveFrames: 0, diveDir: { x: 0, y: 0 }, diveRecovery: 0 },
     p2: { ...state.p2, pos: { ...makePlayer(1).pos }, facing: 'up', diveFrames: 0, diveDir: { x: 0, y: 0 }, diveRecovery: 0 },
