@@ -65,13 +65,27 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+    // Establish a query container so the canvas can size itself against THIS box's
+    // dimensions (cqw/cqh) rather than the viewport — the container may not fill the
+    // whole screen.
+    containerType: 'size',
   },
   canvas: {
-    // Letterbox-fit the fixed 16:9 canvas into the container.
-    maxWidth: '100%',
-    maxHeight: '100%',
-    width: 'auto',
-    height: '100%',
+    // Letterbox-fit the fixed 16:9 canvas into the container WITHOUT distorting the
+    // element box (so the Controls/Hud overlay stays pixel-aligned with the drawn
+    // court — object-fit:contain would keep the bitmap square but leave the box
+    // filling the container, breaking touch-coordinate mapping).
+    //
+    // The trick: never pin BOTH width and height to 100%. Let each dimension cap at
+    // the container (max-*:100%) and let aspect-ratio derive the other. The flex
+    // parent centers the result. This holds the true 16:9 box in landscape,
+    // portrait, and near-square windows alike — the old `width:auto + height:100% +
+    // maxWidth:100%` clamped width without shrinking height, squashing toward square.
+    // Pick the limiting dimension against the CONTAINER (cqw/cqh), not the viewport:
+    // width = min(full container width, the width a full-height 16:9 box would need).
+    // aspect-ratio then derives the height, so the box is always exactly 16:9 and
+    // letterboxes correctly in landscape, portrait, and near-square containers.
+    width: `min(100cqw, calc(100cqh * ${GAME_WIDTH} / ${GAME_HEIGHT}))`,
     aspectRatio: `${GAME_WIDTH} / ${GAME_HEIGHT}`,
     imageRendering: 'pixelated',
     display: 'block',
