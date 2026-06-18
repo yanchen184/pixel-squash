@@ -31,6 +31,7 @@ import {
   WALL_BOUNCE,
   FRONT_WALL_BOUNCE,
   FLOOR_BOUNCE,
+  FLOOR_FRICTION,
   HITSTOP_PERFECT,
   HITSTOP_GOOD,
   HITSTOP_WEAK,
@@ -396,7 +397,15 @@ function applyFloorBounce(s: ShuttleState, _prev: ShuttleState): ShuttleState {
   }
 
   // First bounce after a good front-wall hit: pop back up so the opponent can return.
-  return { ...s, z: EPS, vz: Math.abs(s.vz) * FLOOR_BOUNCE, bouncesSinceWall };
+  // Horizontal speed sheds FLOOR_FRICTION too, so the ball doesn't skid across the
+  // whole court on the rebound (which made lobs land absurdly far on the 2nd bounce).
+  return {
+    ...s,
+    z: EPS,
+    vz: Math.abs(s.vz) * FLOOR_BOUNCE,
+    vel: { x: s.vel.x * FLOOR_FRICTION, y: s.vel.y * FLOOR_FRICTION },
+    bouncesSinceWall,
+  };
 }
 
 /**
@@ -804,6 +813,8 @@ export function sampleServePath(
       points.push({ x, y, z: 0, wall: 'floor' });
       if (floorHits >= 2) break;
       curVz = Math.abs(curVz) * FLOOR_BOUNCE;
+      vx *= FLOOR_FRICTION; // shed horizontal skid on the rebound (mirror live physics)
+      vy *= FLOOR_FRICTION;
       z = EPS;
     }
     if (t % sampleEvery === 0) points.push({ x, y, z });

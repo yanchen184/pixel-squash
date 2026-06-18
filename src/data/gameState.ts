@@ -233,7 +233,9 @@ export const APEX_CEIL = 460;
 // ---- Wall bounce restitution ----
 export const WALL_BOUNCE = 0.92; // side/back wall: velocity retained on bounce
 export const FRONT_WALL_BOUNCE = 0.95; // front wall — retain more energy so ball carries deep
-export const FLOOR_BOUNCE = 0.58; // floor bounce: enough to carry to back court, not endless
+export const FLOOR_BOUNCE = 0.42; // floor bounce: vertical restitution — low so the ball settles
+export const FLOOR_FRICTION = 0.6; // horizontal speed retained per floor bounce — kills the runaway
+                                   // skid that let a lobbed ball cross the whole court each bounce
 
 // ---- Hit-stop tiers ----
 export const HITSTOP_PERFECT = 6;
