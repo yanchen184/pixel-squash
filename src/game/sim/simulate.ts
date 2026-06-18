@@ -73,6 +73,7 @@ export const GRAVITY = 0.42; // height px / tick^2 (keep in sync with AIInput)
 const SWING_COST = 8;
 const STAMINA_REGEN = 0.5;
 const EPS = 1; // small inset used to push the ball off a wall it just hit
+const PRACTICE_TOSS_Z = 120; // height the practice toss lifts the ball to (inside SWING_REACH_Z)
 
 export function step(state: GameState, inA: InputFrame, inB: InputFrame): GameState {
   if (state.winner !== null) return state;
@@ -725,12 +726,15 @@ function solveArcToWall(
   return { vx, vy, vz };
 }
 
-export type PathPoint = { x: number; y: number; z: number; wall?: 'front' | 'back' | 'left' | 'right' | 'floor' };
+export type PathPoint = { x: number; y: number; z: number; wall?: 'front' | 'back' | 'left' | 'right' | 'floor' | 'out' | 'tin' };
 
 /**
  * Simulate ball trajectory from a starting state, sampling points every N ticks.
  * Returns path points (3D game-space) and marks wall/floor contacts.
- * Stops after floor landing (first bounce after front wall hit) or 400 ticks.
+ *
+ * Runs through the SECOND floor landing — that's the double-bounce that ends the
+ * rally — so the preview shows both floor contacts (two floor rings) the way the real
+ * point plays out. Caps at 400 ticks as a safety bound.
  */
 export function sampleServePath(
   startPos: { x: number; y: number },
@@ -743,6 +747,7 @@ export function sampleServePath(
   let x = startPos.x, y = startPos.y, z = startZ;
   let vx = vel.x, vy = vel.y, curVz = vz;
   let prevY = y, prevZ = z;
+  let floorHits = 0;
   const MAX = 400;
   for (let t = 1; t <= MAX; t++) {
     curVz -= GRAVITY;
@@ -757,6 +762,22 @@ export function sampleServePath(
       const span = prevY - y;
       const frac = span > 1e-6 ? prevY / span : 0;
       const hitZ = prevZ + (z - prevZ) * frac;
+      if (hitZ > FRONT_OUT_HEIGHT) {
+        // Above the out line → OUT. Don't reflect: let the ball sail over the front
+        // wall and out of court, then end the preview (the shot is a fault).
+        points.push({ x, y: 0, z: hitZ, wall: 'out' });
+        for (let k = 1; k <= 8; k++) {
+          curVz -= GRAVITY;
+          x += vx; y -= Math.abs(vy); z += curVz; // keep flying forward (out) + arc down
+          points.push({ x, y, z: Math.max(z, 0) });
+        }
+        break;
+      }
+      if (hitZ < TIN_HEIGHT) {
+        // Below the tin → struck the board (dead). Mark + dribble + end the preview.
+        points.push({ x, y: 0, z: hitZ, wall: 'tin' });
+        break;
+      }
       points.push({ x, y: 0, z: hitZ, wall: 'front' });
       vy = Math.abs(vy) * FRONT_WALL_BOUNCE;
       y = EPS;
@@ -777,10 +798,13 @@ export function sampleServePath(
       vx = -Math.abs(vx) * WALL_BOUNCE;
       x = COURT.width - EPS;
     }
-    // Floor
+    // Floor: first bounce rebounds (FLOOR_BOUNCE); the second ends the rally.
     if (z <= 0 && curVz <= 0) {
+      floorHits++;
       points.push({ x, y, z: 0, wall: 'floor' });
-      break;
+      if (floorHits >= 2) break;
+      curVz = Math.abs(curVz) * FLOOR_BOUNCE;
+      z = EPS;
     }
     if (t % sampleEvery === 0) points.push({ x, y, z });
     prevY = y;
@@ -798,10 +822,27 @@ export function sampleServePath(
 function stepPracticeServe(state: GameState, inA: InputFrame): GameState {
   const sub = state.serveSubPhase;
 
-  // ── toss: waiting for player to choose stroke type ──
+  // ── toss: press M to toss the ball up to hitting height ──
   if (sub === 'toss') {
+    if (inA.nextStop) {
+      // Pop the ball up in front of the player to a comfortable contact height,
+      // then wait for a stroke key in the 'swing' sub-phase.
+      const tossed = {
+        ...state.shuttle,
+        pos: { x: state.p1.pos.x, y: state.p1.pos.y },
+        z: PRACTICE_TOSS_Z,
+        vel: { x: 0, y: 0 }, vz: 0,
+        inPlay: false,
+      };
+      return { ...state, shuttle: tossed, serveSubPhase: 'swing' };
+    }
+    const p1s = movePlayer(state.p1, inA, 0, state.shuttle, state);
+    return { ...state, p1: p1s };
+  }
+
+  // ── swing: ball is up; press a stroke key (J/K/L/U/Space) to hit & show path ──
+  if (sub === 'swing') {
     if (inA.swing) {
-      // Any swing key → show full preview path; ball stays at player pos
       const path = computePreviewPath(state.p1.pos, inA.stroke, state);
       return {
         ...state,
@@ -914,19 +955,6 @@ function stepPracticeServe(state: GameState, inA: InputFrame): GameState {
     return { ...state, p1 };
   }
 
-  // ── swing: legacy — kept for compatibility, now unused in practice flow ──
-  if (sub === 'swing') {
-    let shuttle = stepBall(state.shuttle);
-    if (shuttle.z <= 30) {
-      const p1s = movePlayer(state.p1, inA, 0, shuttle, state);
-      return { ...state, serveSubPhase: 'toss',
-        shuttle: { ...shuttle, inPlay: false, z: 60, vel: { x: 0, y: 0 }, vz: 0 }, p1: p1s };
-    }
-    if (inA.swing) return launchPracticeServe(state, inA.stroke, shuttle);
-    const p1s = movePlayer(state.p1, inA, 0, shuttle, state);
-    return { ...state, shuttle, p1: p1s };
-  }
-
   return launchServe(state);
 }
 
@@ -939,17 +967,16 @@ function computePreviewPath(
   const z0 = 80;
   const receiverSide = state.serveBox === 0 ? 0.7 : 0.3;
   const straightSide = state.serveBox === 0 ? 0.3 : 0.7;
-  // boast: aim past the near side wall so ball bounces off it first → front wall
-  // serveBox 0 (left): player near left side → aim RIGHT wall (tx > COURT.width) → front
-  // serveBox 1 (right): player near right side → aim LEFT wall (tx < 0) → front
-  const boastSide = state.serveBox === 0 ? 1.35 : -0.35; // tx overflows to side wall
 
   let wallZ: number, tof1: number, aimX: number;
   switch (strokeId) {
     case 'kill':  wallZ = WALL_HEIGHT * 0.42; tof1 = 18; aimX = receiverSide; break;
     case 'lob':   wallZ = WALL_HEIGHT * 0.85; tof1 = 28; aimX = 0.5;          break; // straight, high → back wall
     case 'drop':  wallZ = WALL_HEIGHT * 0.48; tof1 = 26; aimX = straightSide; break;
-    case 'boast': wallZ = WALL_HEIGHT * 0.52; tof1 = 22; aimX = boastSide;    break; // side wall first
+    // boast = the "打歪出界" demo: aimed too high so it sails OVER the front out line.
+    // wallZ pushes the front-wall strike point above FRONT_OUT_HEIGHT → sampleServePath
+    // flags it 'out' and ends the path with the ball flying out of court.
+    case 'boast': wallZ = FRONT_OUT_HEIGHT * 1.15; tof1 = 24; aimX = straightSide; break;
     default:      wallZ = WALL_HEIGHT * 0.58; tof1 = 28; aimX = receiverSide;
   }
   const tx = COURT.width * aimX;

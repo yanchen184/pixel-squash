@@ -191,6 +191,11 @@ export class PracticeRenderer {
     this.shake = 0;
   }
 
+  /** DEV-only debug seam (mirrors CanvasRenderer.debug) — read/arm practice sim state. */
+  debug() {
+    return this.runner.debugApi();
+  }
+
   private bindEvents(): void {
     // Use rally:point as the closest proxy for a significant game event
     eventBus.on('rally:point', () => {
@@ -232,6 +237,7 @@ export class PracticeRenderer {
     this.drawPreviewPath(s);
     this.drawBallTrail();
     this.drawBall(s);
+    this.drawPreviewBall(s);
     this.drawFrozenBall(s);
     this.drawWallImpacts();
     this.drawHud(s);
@@ -603,9 +609,51 @@ export class PracticeRenderer {
     }
   }
 
+  // ── Preview ball (practice: the tossed/struck ball before the rally launches) ──
+  //
+  // Through the toss ('swing' sub-phase) and the whole M-stepped preview walk the sim
+  // moves shuttle.pos but keeps inPlay=false (it isn't a live rally yet), so drawBall()
+  // — gated on inPlay — never draws it. Draw the ball at shuttle.pos in both phases so
+  // it's visible while tossed, parked at the contact point, mid-flight, and resting on
+  // each ring. (Without this the ball looks frozen at the start — "it doesn't move
+  // when I press M".)
+  private drawPreviewBall(s: GameState): void {
+    if (s.serveSubPhase !== 'preview' && s.serveSubPhase !== 'swing') return;
+    const ctx = this.ctx;
+    const ball = s.shuttle;
+    const t = depthT(ball.pos.y);
+    const bx = screenX(ball.pos.x, t);
+    const by = screenY(ball.z, t);
+    const br = ballRadius(t);
+
+    this.ballTrail.push({ sx: bx, sy: by, r: br * 0.7, age: 0 });
+
+    const grd = ctx.createRadialGradient(bx, by, 0, bx, by, br * 2.5);
+    grd.addColorStop(0, '#ffe080');
+    grd.addColorStop(0.4, COL.ballGlow);
+    grd.addColorStop(1, 'rgba(255,120,0,0)');
+    ctx.beginPath();
+    ctx.arc(bx, by, br * 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = grd;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(bx, by, br, 0, Math.PI * 2);
+    ctx.fillStyle = COL.ball;
+    ctx.shadowColor = COL.ballGlow;
+    ctx.shadowBlur = 12;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
   // ── Frozen ball (practice: ball stopped on front wall) + rebound line ────
   private drawFrozenBall(s: GameState): void {
     const ball = s.shuttle;
+    // Once a shot is in preview, drawPreviewBall owns the ball at every moment (parked
+    // at the contact point, mid-flight, and resting on each ring). The frozen-ball glow
+    // + rebound line must stay out entirely — otherwise they double up with the preview
+    // path and leave a stray ball/dashed line at the old front-wall position.
+    if (s.serveSubPhase === 'preview') return;
     // Show only when ball is frozen on front wall (inPlay=false, pos.y≈0, phase=serve)
     if (ball.inPlay || s.phase !== 'serve' || ball.pos.y > 30) return;
     const ctx = this.ctx;
@@ -671,7 +719,10 @@ export class PracticeRenderer {
       drive: '#60ff90',
       boast: '#ffcc40',
     };
-    const baseColor = strokeColors[s.previewStroke ?? 'drive'] ?? '#60ff90';
+    // A faulted shot (over the out line / into the tin) paints the whole path red so
+    // the player reads "this one's out" at a glance.
+    const isFault = pts.some(p => p.wall === 'out' || p.wall === 'tin');
+    const baseColor = isFault ? '#ff3030' : (strokeColors[s.previewStroke ?? 'drive'] ?? '#60ff90');
 
     // ── Draw dashed path line ──
     ctx.save();
@@ -704,12 +755,36 @@ export class PracticeRenderer {
       left:  '#ffdd40',
       right: '#ffdd40',
       floor: '#40ffaa',
+      out:   '#ff3030', // over the out line — fault
+      tin:   '#ff5050', // struck the tin board — fault
     };
 
     for (const pt of pts) {
       if (!pt.wall) continue;
       const t = depthT(pt.y);
       let sx: number, sy: number;
+
+      // OUT / TIN fault marker: a red X over a ring on the front-wall plane.
+      if (pt.wall === 'out' || pt.wall === 'tin') {
+        sx = screenX(pt.x, 0);
+        sy = screenY(pt.z, 0);
+        const col = wallColors[pt.wall];
+        const r = 16;
+        ctx.beginPath();
+        ctx.arc(sx, sy, r, 0, Math.PI * 2);
+        ctx.fillStyle = col + '44';
+        ctx.fill();
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(sx - r * 0.6, sy - r * 0.6);
+        ctx.lineTo(sx + r * 0.6, sy + r * 0.6);
+        ctx.moveTo(sx + r * 0.6, sy - r * 0.6);
+        ctx.lineTo(sx - r * 0.6, sy + r * 0.6);
+        ctx.stroke();
+        continue;
+      }
 
       if (pt.wall === 'floor') {
         // Floor contact: project to floor plane
@@ -899,8 +974,8 @@ export class PracticeRenderer {
       ctx.textAlign = 'center';
       ctx.fillText('選發球框：A / ← 左框　D / → 右框', GAME_WIDTH / 2, GAME_HEIGHT / 2 + 12);
     } else if (s.serveSubPhase === 'toss') {
-      this.drawServeHint(ctx, '【選球路】按揮拍鍵預覽軌跡', '#ffd060',
-        'J=殺球  K=截球  L=直球  U=三星  Space=高吊');
+      this.drawServeHint(ctx, '【拋球】按 M 把球拋起', '#ffd060',
+        'M→拋球');
     } else if (s.serveSubPhase === 'preview') {
       const strokeName: Record<string, string> = {
         kill: '殺球 (低快)', drop: '截球 (短角)', drive: '直球 (標準)',
@@ -910,10 +985,18 @@ export class PracticeRenderer {
       const stops = (s.previewPath ?? []).filter(p => p.wall != null);
       const step = s.previewStep;
       const remaining = stops.length - 1 - step;
-      const stepLabel = step < 0 ? '起點' : `第${step + 1}面牆`;
-      const mLabel = remaining > 0 ? `M→下一段 (剩${remaining})` : 'M→發球！';
-      this.drawServeHint(ctx, `【${name}】${stepLabel}  揮拍可打球`, '#60ff90',
-        mLabel + '  J/K/L/U/Space=揮拍');
+      const cur = step >= 0 && step < stops.length ? stops[step] : undefined;
+      if (cur?.wall === 'out' || cur?.wall === 'tin') {
+        // Reached the fault contact — the shot is OUT / hit the tin.
+        const why = cur.wall === 'out' ? '出界！球飛過 out line' : '打到 tin！球太低';
+        this.drawServeHint(ctx, `【${name}】${why}`, '#ff4040',
+          'M→重新發球  J/K/L/U/Space=揮拍');
+      } else {
+        const stepLabel = step < 0 ? '起點' : `第${step + 1}面牆`;
+        const mLabel = remaining > 0 ? `M→下一段 (剩${remaining})` : 'M→發球！';
+        this.drawServeHint(ctx, `【${name}】${stepLabel}  揮拍可打球`, '#60ff90',
+          mLabel + '  J/K/L/U/Space=揮拍');
+      }
     } else if (s.serveSubPhase === 'swing') {
       this.drawServeHint(ctx, '【揮拍】再按揮拍鍵打出！', '#60ff90',
         'J=低快  K=截擊  L=標準  U=三星  Space=高吊');
