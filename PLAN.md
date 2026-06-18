@@ -2,11 +2,11 @@
 
 > **目標：拿到此文件，不看原始碼也能重建這個壁球遊戲。** 所有數字均為實際程式碼值，非設計願望。
 >
-> **最後同步：2026-06-16**（同步至 commit 截止全部實作）
+> **最後同步：2026-06-18**（路線圖回填：sprite/場地/觀眾/歡呼資產接入皆已完成並經瀏覽器 round-trip 驗證）
 >
 > **血緣**：從 pixel-badminton（羽球）fork 而來，獨立 repo。共用四根設計支柱與整套接縫框架（InputSource / SimRunner / 決定性 60Hz / React 殼 / 測試法），改寫集中在物理（四牆反彈 vs 過網）+ 球路 + 計分 + 投影。
 >
-> 專案根：`/Users/yanchen/workspace/boardgame/pixel-squash/`
+> 專案根：跨機器，Windows 在 `D:\projects\frontend\pixel-squash`。
 
 ---
 
@@ -449,13 +449,60 @@ type GameEvents = {
 
 ---
 
-## 9. 測試（`tests/`）
+## 9. 測試
 
-`vitest run`，3 檔：
+測試金字塔分三層：**L1 單元/物理（已綠）→ L2 E2E（重寫中）→ L3 人工試玩截圖（已做一輪）**。
+驗收原則（遵 CLAUDE.md）：可自動化的條件一律自動跑出 pass/fail，不以「程式邏輯看起來對」代替執行；
+「修好了」以 round-trip 為準（畫面/輸出端真的看得到結果），不以 handshake（build 綠、server 起來）為準。
+
+### 9.1 L1 — 單元 + 物理（`tests/`，`vitest run`）
+
+現有 4 檔，全綠：
 
 - **`simulate.test.ts`**：決定性、frame 遞增、發球流程、PAR 計分、勝負凍結、壁球不變量（球在四牆界內、第二落地死球）。rally-feel 回歸測：`playMatch` 跑 AI-vs-AI，斷言 `rallyHits.length>=5`、`avg>3`、兩拍局 `<50%`。
 - **`feel.test.ts`**：timing 視窗、hit-stop（perfect 凍結 HITSTOP_PERFECT 幀、凍結期間球不動只有 frame 進）。
 - **`strokes.test.ts`**：6 球路 profile + 前牆撞擊點 + 牆反彈守恆（撞牆後速度方向翻號）+ tin/out 判定。
+- **`physics-audit.test.ts`**（新）：量化物理體檢，8 測。`console.log` 輸出人類可讀報告行（`[carry]`/`[arc]`/`[wall:*]`/`[death:*]`/`[ai-rally]`），`expect` 當 pass/fail 閘門：球發出後深入球場 >40%、重力產生升降弧、三面牆能量保留比落在 bounce 常數 ±0.05、tin/double-bounce 死球、AI rally avg>3 且 ≤2 拍局 <50%。
+
+> vitest 設定 `include: ['tests/**/*.test.ts']`，已排除 `e2e/`（Playwright 自管），兩套不互相污染。
+
+### 9.2 L2 — Playwright E2E（`e2e/`）— **現況：全套對著舊架構，需重寫**
+
+**根因發現**：`e2e/` 6 支 spec 全部寫在 fork 前的 **Phaser + `window.__game` 架構**上，與現在的 **React + Canvas2D** 完全對不上。共通失效點：
+
+| 失效點 | 舊（badminton/Phaser） | 今（squash/React+Canvas2D） |
+|---|---|---|
+| 遊戲實例 | `window.__game.scene.getScene('match')` | 不存在（單一 `<canvas>`，無 `window.__game`，已實測確認） |
+| 進場按鈕 | `/開始對戰/` | `開始遊戲 → 怎麼玩 → 知道了選難度 → 中等` |
+| 狀態存取 | `scene.debugState()` / `scene.runner` | 無 debug hook |
+| 球種殘留 | `smash`/`clear`（羽球） | 壁球只有 `kill`/`drop`/`drive`/`lob`/`serve` |
+| overlay rig | 獨立 arm sprite + `debugOverlay()` | 無此 rig（sprite 由 crop 表選幀） |
+
+逐檔處置：
+
+| spec | 處置 | 理由 |
+|---|---|---|
+| `match.spec.ts` | **重寫** | 概念有效（boot → sim ticks → 跑到勝負），但需改走真實 React DOM 流程 + 暴露最小 debug hook 取代 `__game` |
+| `dive-keyboard.spec.ts` | **重寫** | KeyK→dive 的人路 round-trip 仍要測，但注入點要改 |
+| `dive-save.spec.ts` | **重寫** | 魚躍救球三斷言（救到/耗體力/倒地鎖位）仍有效，重接注入 API |
+| `swing-overlay.spec.ts` | **刪** | 測的 arm-overlay rig 在此架構不存在 |
+| `swing-pose-debug.spec.ts` | **刪** | debug-only 非 CI，且 `smash/clear` 羽球殘留 |
+| `visual-compare.spec.ts` | **刪或改** | 對著羽球 `target.jpg` 比對，已無對應 target |
+
+**前置（已完成）**：`npx playwright install chromium`（exit 0）— 先前 14 測全紅的真因是瀏覽器沒裝，非測試邏輯。
+
+**重寫策略**：
+1. 在 `GameView`/`CanvasRenderer` 暴露一個**最小 debug hook**（如 `window.__squash = { state(), runner }`，僅 `import.meta.env.DEV` 下掛），讓 E2E 能讀 sim 狀態 / 注入情境 —— 取代死掉的 `window.__game`。
+2. 共通 `walkToMatch` 改走真 DOM：`開始遊戲 → 知道了選難度 → 中等`，再 `waitForFunction(() => window.__squash?.runner)`。
+3. 保留「人路 round-trip」精神：dive 測仍要從真 `KeyK` 鍵盤事件進、sim 狀態端驗 `lastHitBy` 翻號，不只注入 InputSource。
+4. 收斂成 **3 支綠 spec**：`match`（boot+ticks+跑到 11 分且兩邊有得分）、`dive`（KeyK 救球+耗體力+鎖位）、`smoke`（menu→practice→canvas 有畫面，補 L3 的自動化版）。
+
+**驗收條件（L2 完成定義）**：`npx playwright test` 全綠、CI 可跑、無羽球字串殘留（grep `smash|clear|__game|target.jpg` 在 `e2e/` 為 0）。
+
+### 9.3 L3 — 人工試玩截圖（已做一輪，2026-06-18）
+
+用 Playwright 驅動真 build，逐畫面 `canvas.toDataURL` 匯出 PNG 再解碼判讀。本輪結果：match 發球前/rally、practice 進場/選球種預覽/M 鍵分段，**5 張全部渲染正常**；practice 黑剪影 bug 確認已修；M 鍵分段預覽 live。截圖存 `.playtest/`。
+發現一個非阻塞項：canvas 內部 1280×720 但 CSS 被壓成 1249×1277（16:9 → 近正方形），即行動裝置變形，列入 CSS 待修。
 
 ---
 
@@ -493,14 +540,16 @@ type GameEvents = {
 - [x] 品質標籤 FX（perfect/good/early/late 浮字）
 - [x] hit-stop 視覺強化
 - [x] Firebase Hosting + GitHub Actions CI/CD
+- [x] sprite/圖片資產管線：`src/assets/assetLoader.ts`（manifest + 並行載入 + 失敗 fallback 到程序繪製 + sprite sheet crop 表）
+- [x] 背面角色 sprite 生成並接入渲染器（#12）— `player_backview` / `opponent_core` sheet，`CanvasRenderer.drawPlayer` 依 `swingCooldown/diveFrames/diveRecovery` 選幀
+- [x] 場地改用生成圖片當背景（對齊透視座標）（#13）— `court_bg_no_glass`（含觀眾）為主圖，fallback 鏈 `court_material_base → court_base_v3 → court_base`；`court_glass` 前景玻璃
+- [x] 補齊角色動作 sprite（#20）— `PLAYER_BACKVIEW_CROPS` / `OPPONENT_CROPS`（ready/run/swing/dive 各幀）
+- [x] 觀眾 sprite 生成並接入渲染器（#23）— 觀眾已內嵌於 `court_bg_no_glass`；獨立 `audience_side` 為未載入主圖時的 overlay fallback
+- [x] 觀眾歡呼觸發條件（#24）— `CanvasRenderer` cheerTimer/cheerText：得分（全場歡呼）、每 10 拍長對拍（精彩對拍）、魚躍救球（魚躍救球）三觸發 + `drawCheerFlash` 閃光
 
 ### 進行中 / 待完成
 
-- [ ] 背面角色 sprite 生成並接入渲染器（#12）
-- [ ] 場地改用生成圖片當背景（對齊透視座標）（#13）
-- [ ] 補齊角色動作 sprite（#20，依賴 #12）
-- [ ] 觀眾 sprite 生成並接入渲染器（#23）
-- [ ] 觀眾歡呼觸發條件（#24，依賴 #23）
+- （無）核心引擎與美術接入皆已完成；後續為 Phase 2 連網。
 
 ### Phase 2（接縫已備，延後實作）
 

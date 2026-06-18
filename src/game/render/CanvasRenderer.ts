@@ -302,6 +302,16 @@ export class CanvasRenderer {
     return this.runner.current;
   }
 
+  /**
+   * DEV/E2E seam. Bundles the sim's debug API with the AIInput class so a headless
+   * test can read state, swap side A to an AI (self-playing match), reset, and
+   * construct opponents — all without touching private fields. See GameView, which
+   * hangs this off `window.__squash` in DEV only.
+   */
+  debug() {
+    return { ...this.runner.debugApi(), AIInput };
+  }
+
   // ---- FX bookkeeping ----
   private advanceFx(s: GameState): void {
     this.spawnBurstIfHit('p1', s.p1, s);

@@ -1,72 +1,109 @@
 import { test, expect, type Page } from '@playwright/test';
 
 /**
- * Round-trip E2E: the real app, real Phaser, real RAF loop. Proves the menu flow
- * works and that the deterministic sim actually ticks and plays a full match to a
- * winner with both sides able to score. Runs headed (see playwright.config) so RAF
- * is not frozen.
+ * Round-trip E2E: the real React app, real Canvas2D renderer, real RAF + 60Hz sim.
+ * Proves the menu flow boots the match, the deterministic sim actually ticks under
+ * the live RAF loop, and a full self-playing match runs to a winner with both sides
+ * scoring (rallies go both ways — not a one-sided fault loop). Runs headed (see
+ * playwright.config) so RAF is not frozen in a hidden tab.
+ *
+ * State is read through the DEV-only `window.__squash` seam (CanvasRenderer.debug()
+ * → SimRunner.debugApi()), so the test never reaches into private renderer fields.
  */
 
+type SquashDebug = {
+  state: () => {
+    frame: number;
+    phase: string;
+    winner: number | null;
+    scores: [number, number];
+    shuttle: { inPlay: boolean };
+  };
+  setInputA: (src: { side: number; sample: (s: { awaitingServeChoice?: boolean }) => unknown; reset?: () => void }) => void;
+  reset: () => void;
+  AIInput: new (difficulty: string, side: number, seed: number) => {
+    sample: (s: { awaitingServeChoice?: boolean }) => { serveLeft: boolean; [k: string]: unknown };
+    reset?: () => void;
+  };
+};
+
+declare global {
+  interface Window {
+    __squash?: SquashDebug;
+  }
+}
+
+/** Walk the real menu DOM into a started match and wait for the sim seam to mount. */
 async function walkToMatch(page: Page) {
   await page.goto('/');
   await page.getByRole('button', { name: '開始遊戲' }).click();
-  await page.getByRole('button', { name: /開始對戰/ }).click();
+  await page.getByRole('button', { name: /知道了，選難度/ }).click();
   await page.getByRole('button', { name: '中等' }).click();
-  // Wait for the Phaser game + sim runner to come up.
-  await page.waitForFunction(() => {
-    const g = (window as any).__game;
-    const scene = g?.scene?.getScene('match');
-    return !!scene?.runner;
-  }, { timeout: 10_000 });
+  await page.waitForFunction(() => !!window.__squash, undefined, { timeout: 10_000 });
 }
 
-test('menu flow boots the match scene and the sim ticks', async ({ page }) => {
+test('menu flow boots the match and the deterministic sim ticks', async ({ page }) => {
   await walkToMatch(page);
 
-  // The deterministic sim must advance under the real RAF loop.
-  const f0 = await page.evaluate(() => (window as any).__game.scene.getScene('match').debugState().frame);
+  // The sim must advance under the real RAF loop.
+  const f0 = await page.evaluate(() => window.__squash!.state().frame);
   await page.waitForTimeout(800);
-  const f1 = await page.evaluate(() => (window as any).__game.scene.getScene('match').debugState().frame);
+  const f1 = await page.evaluate(() => window.__squash!.state().frame);
   expect(f1).toBeGreaterThan(f0);
 
-  // The serve must launch (phase leaves 'serve', shuttle goes in play).
+  // The serve waits on the human's service-box choice (awaitingServeChoice). HOLD the
+  // real serve key — A = choose the left box (serveLeft) — the genuine human path.
+  // LocalInput reads the held state per tick, so the key must stay down across a few
+  // frames (a quick press can fall between sim ticks and never register).
+  await page.evaluate(() => (document.body as HTMLElement).focus());
+  await page.keyboard.down('KeyA');
+  await page.waitForTimeout(200);
+  await page.keyboard.up('KeyA');
+
+  // The serve must launch (shuttle goes in play, or a point is already scored).
   await page.waitForFunction(() => {
-    const s = (window as any).__game.scene.getScene('match').debugState();
+    const s = window.__squash!.state();
     return s.shuttle.inPlay || s.scores[0] + s.scores[1] > 0;
-  }, { timeout: 5_000 });
+  }, undefined, { timeout: 8_000 });
 });
 
-test('a full match plays to a winner with both sides scoring', async ({ page }) => {
+test('competitive rallies go both ways under the real RAF loop', async ({ page }) => {
   await walkToMatch(page);
 
   // Drive the (normally human) near side with a real AIInput too, so a full
   // competitive rally develops under the real RAF loop. Two evenly-matched AIs
   // produce a close match where BOTH sides score — proving rallies go both ways,
-  // not a one-sided net-fault loop. The scene's AIInput class is reachable via the
-  // live opponent's constructor.
+  // not a one-sided fault loop.
+  //
+  // The serve waits on side A's box choice (awaitingServeChoice reads inA only), but
+  // the AI never emits one. Wrap it: delegate every tick to the real AI, and force a
+  // serveLeft whenever a choice is pending so the match keeps serving after points.
   await page.evaluate(() => {
-    const scene = (window as any).__game.scene.getScene('match');
-    const runner = scene.runner;
-    const AIInput = scene.ai.constructor; // same class the scene already uses
-    runner.inputA = new AIInput('hard', 0, 0x0badf00d);
-    runner.reset();
+    const dbg = window.__squash!;
+    const ai = new dbg.AIInput('hard', 0, 0x0badf00d);
+    dbg.setInputA({
+      side: 0,
+      reset: () => ai.reset?.(),
+      sample: (s: { awaitingServeChoice?: boolean }) => {
+        const frame = ai.sample(s);
+        return s.awaitingServeChoice ? { ...frame, serveLeft: true } : frame;
+      },
+    });
+    dbg.reset();
   });
 
-  // Real-time play until a winner emerges.
+  // Play in real time until BOTH sides have scored — the unique thing this E2E
+  // proves that the headless L1 tests can't: the real RAF render loop actually
+  // drives two-way competitive rallies. (Playing all the way to 11 would take ~2min
+  // of wall-clock real-time RAF; PAR-11 scoring, win-by-2, and winner-freeze are
+  // already covered headless at full speed in simulate.test.ts — no need to re-prove
+  // them slowly here.)
   await page.waitForFunction(() => {
-    const s = (window as any).__game.scene.getScene('match').debugState();
-    return s.winner !== null;
-  }, { timeout: 45_000 });
+    const s = window.__squash!.state();
+    return s.scores[0] > 0 && s.scores[1] > 0;
+  }, undefined, { timeout: 60_000 });
 
-  const final = await page.evaluate(() => {
-    const s = (window as any).__game.scene.getScene('match').debugState();
-    return { scores: s.scores, winner: s.winner };
-  });
-
-  expect(final.winner === 0 || final.winner === 1).toBeTruthy();
-  expect(Math.max(final.scores[0], final.scores[1])).toBe(11);
-  // Both sides should have scored at least once — proves rallies go both ways,
-  // not a one-sided net-fault loop.
-  expect(final.scores[0]).toBeGreaterThan(0);
-  expect(final.scores[1]).toBeGreaterThan(0);
+  const snap = await page.evaluate(() => window.__squash!.state().scores);
+  expect(snap[0]).toBeGreaterThan(0);
+  expect(snap[1]).toBeGreaterThan(0);
 });

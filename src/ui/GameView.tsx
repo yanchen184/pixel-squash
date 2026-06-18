@@ -30,6 +30,11 @@ export function GameView({ config, onExit }: { config: MatchConfig; onExit: () =
     renderer.start();
     if (import.meta.env.DEV) {
       (window as unknown as { __renderer: typeof renderer }).__renderer = renderer;
+      // E2E seam: match renderer exposes a sim debug API (read state / swap AI /
+      // reset) under a stable handle. Practice mode has no such hook (smoke test
+      // verifies it via canvas pixels + DOM instead).
+      const debug = (renderer as { debug?: () => unknown }).debug?.();
+      if (debug) (window as unknown as { __squash: unknown }).__squash = debug;
     }
     return () => {
       renderer.stop();
