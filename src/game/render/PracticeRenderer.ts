@@ -36,7 +36,7 @@ import { type PathPoint } from '@/game/sim/simulate';
 import { LocalInput } from '@/game/input/LocalInput';
 import { AIInput } from '@/game/input/AIInput';
 import { eventBus } from '@/game/eventBus';
-import { loadAssets, getImage, PLAYER_LUNGE_CROPS, OPPONENT_CROPS } from '@/assets/assetLoader';
+import { loadAssets, getImage, PLAYER_BACKVIEW_CROPS, OPPONENT_CROPS } from '@/assets/assetLoader';
 
 export const GAME_WIDTH = 1280;
 export const GAME_HEIGHT = 720;
@@ -779,22 +779,30 @@ export class PracticeRenderer {
     const spriteW = spriteH * 0.75;
 
     if (this.assetsReady) {
-      // opponent_core is front-facing (white/red player). player_backview has alpha.
-      // Use multiply composite to knock out white backgrounds on RGB sprites.
-      const img = getImage('opponent_core') ?? getImage('player_backview');
+      // Match-mode parity: player faces the front wall (back to camera), so prefer
+      // the back-view sheet. Both sheets carry an alpha channel — draw them straight,
+      // NO multiply composite (multiply on a dark court turns the sprite into a black
+      // blob, which is what made practice-mode players look like silhouettes).
+      const backview = getImage('player_backview');
+      const img = backview ?? getImage('opponent_core');
       if (img) {
-        const crop = p.swingCooldown > 0
-          ? PLAYER_LUNGE_CROPS.lunge
-          : OPPONENT_CROPS.ready;
+        const crops = backview ? PLAYER_BACKVIEW_CROPS : OPPONENT_CROPS;
+        let crop;
+        if (p.swingCooldown > 0) {
+          crop = crops.swing;
+        } else {
+          const speed = Math.hypot(p.vel.x, p.vel.y);
+          crop = speed > 1.0 ? crops.run : crops.ready;
+        }
         if (crop) {
-          ctx.save();
-          ctx.globalCompositeOperation = 'multiply';
+          // Keep the sprite cell's aspect ratio (418/314 ≈ 1.33) so the chibi
+          // isn't squashed, anchoring bottom-center at the floor point.
+          const sw = spriteH * (crop.sw / crop.sh);
           ctx.drawImage(
             img,
             crop.sx, crop.sy, crop.sw, crop.sh,
-            px - spriteW / 2, py - spriteH, spriteW, spriteH,
+            px - sw / 2, py - spriteH, sw, spriteH,
           );
-          ctx.restore();
           return;
         }
       }
