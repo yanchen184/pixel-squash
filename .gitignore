@@ -11,3 +11,8 @@ playwright-report/
 .playtest/
 *.log
 *.tsbuildinfo
+
+# debug screenshots / scratch
+/*.png
+/*.txt
+!README*
