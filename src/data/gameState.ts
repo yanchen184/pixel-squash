@@ -114,7 +114,7 @@ export type RallyPhase = 'serve' | 'rally' | 'point';
  *   'toss'    — box chosen; waiting for player to press any swing key to toss the ball
  *   'swing'   — ball is in the air (toss arc); waiting for player to press swing key to hit
  */
-export type ServeSubPhase = 'choice' | 'toss' | 'preview' | 'swing' | null;
+export type ServeSubPhase = 'choice' | 'toss' | 'airborne' | 'preview' | 'swing' | null;
 
 /** Practice mode: no scoring, AI only lobs, landing arc preview always visible. */
 export type GameMode = 'match' | 'practice';

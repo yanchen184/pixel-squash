@@ -75,6 +75,11 @@ const SWING_COST = 8;
 const STAMINA_REGEN = 0.5;
 const EPS = 1; // small inset used to push the ball off a wall it just hit
 const PRACTICE_TOSS_Z = 120; // height the practice toss lifts the ball to (inside SWING_REACH_Z)
+// Real-toss serve tuning (strategy, not reaction):
+const PRACTICE_TOSS_VZ = 6;     // upward velocity given to the tossed ball
+const PRACTICE_SLOWMO = 0.18;   // gravity multiplier while airborne — very slow rise/fall
+const PRACTICE_HIT_RANGE = 150; // horizontal distance (px) that counts as "near body" for a hit
+const PRACTICE_MISS_HITSTOP = 18; // freeze frames after a missed (dropped) serve
 
 export function step(state: GameState, inA: InputFrame, inB: InputFrame): GameState {
   if (state.winner !== null) return state;
@@ -244,7 +249,13 @@ function movePlayer(pl: PlayerState, input: InputFrame, side: Side, shuttle: Shu
 
   // During the serve phase, constrain player movement to their service box so
   // the server is in the correct box and the receiver stays in the opposite box.
-  if (state && state.phase === 'serve' && state.phaseTimer > 0) {
+  // This also covers the whole practice manual-serve flow (toss/airborne/swing/
+  // preview), so the server can only reposition inside their box while serving.
+  const inServeFlow =
+    state != null &&
+    state.phase === 'serve' &&
+    (state.phaseTimer > 0 || state.serveSubPhase != null);
+  if (state && inServeFlow) {
     const midX = COURT.width / 2;
     const isServer = side === state.server;
     const box = isServer ? state.serveBox : (state.serveBox === 0 ? 1 : 0);
@@ -833,22 +844,70 @@ export function sampleServePath(
 function stepPracticeServe(state: GameState, inA: InputFrame): GameState {
   const sub = state.serveSubPhase;
 
-  // ── toss: press M to toss the ball up to hitting height ──
+  // ── toss: press M to toss the ball up; it then drifts in slow-motion ──
   if (sub === 'toss') {
     if (inA.nextStop) {
-      // Pop the ball up in front of the player to a comfortable contact height,
-      // then wait for a stroke key in the 'swing' sub-phase.
+      // Real toss: give the ball an upward velocity so it genuinely rises and
+      // falls (in slow-motion, see 'airborne'). This is a strategy game, not a
+      // reaction game — the slow fall gives the player time to read the
+      // opponent's position and choose a stroke before swinging.
       const tossed = {
         ...state.shuttle,
         pos: { x: state.p1.pos.x, y: state.p1.pos.y },
         z: PRACTICE_TOSS_Z,
-        vel: { x: 0, y: 0 }, vz: 0,
-        inPlay: false,
+        vel: { x: 0, y: 0 },
+        vz: PRACTICE_TOSS_VZ,
+        inPlay: true,
+        lastHitBy: null as null,
+        bouncesSinceWall: 0,
+        hitFrontWall: false,
+        deadReason: null as null,
       };
-      return { ...state, shuttle: tossed, serveSubPhase: 'swing' };
+      return { ...state, shuttle: tossed, serveSubPhase: 'airborne' };
     }
     const p1s = movePlayer(state.p1, inA, 0, state.shuttle, state);
     return { ...state, p1: p1s };
+  }
+
+  // ── airborne: tossed ball drifts up/down in slow-motion; swing near it to hit ──
+  if (sub === 'airborne') {
+    const sh = state.shuttle;
+    // Slow-motion gravity so the player has time to decide where to place the
+    // ball and which stroke to use. The ball never stops — it keeps drifting.
+    const nvz = sh.vz - GRAVITY * PRACTICE_SLOWMO;
+    const nz = sh.z + nvz;
+
+    // Hit detection (simplified per design): a swing key counts as a hit when
+    // the ball is horizontally near the player's body — height is forgiving so
+    // the player isn't fighting a reaction-timing window.
+    if (inA.swing) {
+      const dx = sh.pos.x - state.p1.pos.x;
+      const dy = sh.pos.y - state.p1.pos.y;
+      const nearBody = Math.hypot(dx, dy) <= PRACTICE_HIT_RANGE;
+      if (nearBody) {
+        const path = computePreviewPath(state.p1.pos, inA.stroke, state);
+        return {
+          ...state,
+          serveSubPhase: 'preview',
+          previewPath: path,
+          previewStroke: inA.stroke,
+          previewStep: -1,
+          previewPathIdx: -1,
+          shuttle: { ...sh, inPlay: false },
+        };
+      }
+      // Swung but the ball was too far — the swing still commits (cooldown) but
+      // the ball keeps drifting; if it lands they lose the point.
+    }
+
+    // Ball landed without a successful hit → missed serve → lose the point.
+    if (nz <= 0 && nvz < 0) {
+      return loseServeAttempt(state);
+    }
+
+    const drifting = { ...sh, z: nz, vz: nvz };
+    const p1s = movePlayer(state.p1, inA, 0, drifting, state);
+    return { ...state, shuttle: drifting, p1: p1s };
   }
 
   // ── swing: ball is up; press a stroke key (J/K/L/U/Space) to hit & show path ──
@@ -967,6 +1026,35 @@ function stepPracticeServe(state: GameState, inA: InputFrame): GameState {
   }
 
   return launchServe(state);
+}
+
+/**
+ * Practice serve missed (ball landed without a successful swing). No scoring in
+ * practice — we just reset back to 'toss' so the player can serve again, with a
+ * brief hit-stop as feedback that they let the ball drop.
+ */
+function loseServeAttempt(state: GameState): GameState {
+  const reset = {
+    ...state.shuttle,
+    pos: { x: state.p1.pos.x, y: state.p1.pos.y },
+    z: 0,
+    vel: { x: 0, y: 0 },
+    vz: 0,
+    inPlay: false,
+    bouncesSinceWall: 0,
+    hitFrontWall: false,
+    deadReason: 'floor' as DeadReason,
+  };
+  return {
+    ...state,
+    shuttle: reset,
+    serveSubPhase: 'toss',
+    hitstop: Math.max(state.hitstop, PRACTICE_MISS_HITSTOP),
+    previewPath: null,
+    previewStroke: null,
+    previewStep: -1,
+    previewPathIdx: -1,
+  };
 }
 
 /** Compute serve preview path from player's current position for the given stroke. */

@@ -36,7 +36,7 @@ import { type PathPoint } from '@/game/sim/simulate';
 import { LocalInput } from '@/game/input/LocalInput';
 import { AIInput } from '@/game/input/AIInput';
 import { eventBus } from '@/game/eventBus';
-import { loadAssets, getImage, PLAYER_BACKVIEW_CROPS, OPPONENT_CROPS } from '@/assets/assetLoader';
+import { loadAssets, getImage, PLAYER_BACKVIEW_CROPS, PLAYER_ACTIONS_V2_CROPS, OPPONENT_CROPS } from '@/assets/assetLoader';
 
 export const GAME_WIDTH = 1280;
 export const GAME_HEIGHT = 720;
@@ -363,10 +363,26 @@ export class PracticeRenderer {
     ctx.lineTo(NEAR_RIGHT, NEAR_BOTTOM);
     ctx.closePath();
     const floorGrad = ctx.createLinearGradient(0, NEAR_BOTTOM, 0, FAR_BOTTOM);
-    floorGrad.addColorStop(0, '#0f2030');
-    floorGrad.addColorStop(1, '#0a1825');
+    // Warmer, lighter court-wood tone so the floor reads as a real surface
+    // instead of a near-black void (perspective box can't take the flat top-down
+    // court_bg art, so we tint the trapezoid itself).
+    floorGrad.addColorStop(0, '#22354a');
+    floorGrad.addColorStop(1, '#152736');
     ctx.fillStyle = floorGrad;
     ctx.fill();
+
+    // Faint plank lines running front→back to give the floor a wood texture.
+    ctx.save();
+    ctx.strokeStyle = 'rgba(120,150,190,0.07)';
+    ctx.lineWidth = 1;
+    for (let i = 1; i < 8; i++) {
+      const gx = (COURT.width / 8) * i;
+      ctx.beginPath();
+      ctx.moveTo(screenX(gx, 0), screenY(0, 0));
+      ctx.lineTo(screenX(gx, 1), screenY(0, 1));
+      ctx.stroke();
+    }
+    ctx.restore();
 
     // Floor centre line (court half-width marker)
     const floorMidNearX = screenX(COURT.width / 2, 0);
@@ -411,12 +427,18 @@ export class PracticeRenderer {
       ctx.lineTo(bk1x, bk1y);
       ctx.lineTo(bk0x, bk0y);
       ctx.closePath();
+      // Solid filled service box (per request): always a visible filled square,
+      // the active box glows brighter so the player sees where they must stand.
       if (isActive) {
-        ctx.fillStyle = 'rgba(48,180,96,0.14)';
-        ctx.fill();
+        // Pulse the active box so it reads as "stand here to serve".
+        const pulse = 0.30 + 0.12 * Math.sin(Date.now() / 220);
+        ctx.fillStyle = `rgba(48,200,110,${pulse.toFixed(3)})`;
+      } else {
+        ctx.fillStyle = 'rgba(48,140,90,0.16)';
       }
-      ctx.strokeStyle = isActive ? 'rgba(48,180,96,0.8)' : 'rgba(48,180,96,0.3)';
-      ctx.lineWidth = isActive ? 1.5 : 1;
+      ctx.fill();
+      ctx.strokeStyle = isActive ? 'rgba(90,255,150,0.95)' : 'rgba(48,180,96,0.45)';
+      ctx.lineWidth = isActive ? 2.5 : 1.2;
       ctx.stroke();
     }
 
@@ -854,10 +876,74 @@ export class PracticeRenderer {
     const spriteW = spriteH * 0.75;
 
     if (this.assetsReady) {
-      // Match-mode parity: player faces the front wall (back to camera), so prefer
-      // the back-view sheet. Both sheets carry an alpha channel — draw them straight,
-      // NO multiply composite (multiply on a dark court turns the sprite into a black
-      // blob, which is what made practice-mode players look like silhouettes).
+      // Match-mode parity: player faces the front wall (back to camera). Prefer the
+      // v2 action sheet (idle breathing / directional run / per-stroke swing / dive),
+      // then fall back to the old back-view sheet, then the opponent sheet. All sheets
+      // carry an alpha channel — draw them straight, NO multiply composite (multiply on
+      // a dark court turns the sprite into a black blob, which is what made practice-mode
+      // players look like silhouettes).
+      const actions = getImage('player_actions_v2');
+      if (actions) {
+        const A = PLAYER_ACTIONS_V2_CROPS;
+        let crop;
+        let flipX = false;
+        let breathScale = 1;
+        if (p.diveFrames > 0) {
+          crop = A.dive;
+        } else if (p.swingCooldown > 0) {
+          switch (p.lastStroke) {
+            case 'kill':
+            case 'lob':
+              crop = A.swingKill;
+              break;
+            case 'drop':
+              crop = A.swingDrop;
+              break;
+            case 'boast':
+              crop = A.swingBoast;
+              break;
+            default:
+              crop = A.swingDrive;
+              break;
+          }
+        } else {
+          const vx = p.vel.x;
+          const vy = p.vel.y;
+          const speed = Math.hypot(vx, vy);
+          const horizontal = Math.abs(vx) > Math.abs(vy);
+          if (speed > 1.0 && horizontal && vx < -1) {
+            crop = A.runLeft;
+          } else if (speed > 1.0 && horizontal && vx > 1) {
+            crop = A.runRight;
+            flipX = true;
+          } else if (speed > 1.0) {
+            crop = A.runRight;
+          } else {
+            const phase = Math.sin(Date.now() * 0.0035);
+            crop = phase >= 0 ? A.idleA : A.idleB;
+            breathScale = 1 + phase * 0.015;
+          }
+        }
+        // Keep the sprite cell's aspect ratio (418/314 ≈ 1.33) so the chibi isn't
+        // squashed, anchoring bottom-center at the floor point.
+        const sh = spriteH * breathScale;
+        const sw = sh * (crop.sw / crop.sh);
+        ctx.save();
+        if (flipX) {
+          ctx.translate(px, 0);
+          ctx.scale(-1, 1);
+          ctx.translate(-px, 0);
+        }
+        ctx.drawImage(
+          actions,
+          crop.sx, crop.sy, crop.sw, crop.sh,
+          px - sw / 2, py - sh, sw, sh,
+        );
+        ctx.restore();
+        return;
+      }
+
+      // Fallback: previous back-view sheet (or opponent sheet) with simpler state set.
       const backview = getImage('player_backview');
       const img = backview ?? getImage('opponent_core');
       if (img) {
@@ -870,8 +956,6 @@ export class PracticeRenderer {
           crop = speed > 1.0 ? crops.run : crops.ready;
         }
         if (crop) {
-          // Keep the sprite cell's aspect ratio (418/314 ≈ 1.33) so the chibi
-          // isn't squashed, anchoring bottom-center at the floor point.
           const sw = spriteH * (crop.sw / crop.sh);
           ctx.drawImage(
             img,

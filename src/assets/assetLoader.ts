@@ -30,7 +30,8 @@ export type AssetKey =
   | 'opponent_core'
   | 'court_glass'
   | 'audience_side'
-  | 'player_movement';
+  | 'player_movement'
+  | 'player_actions_v2';
 
 /**
  * Resolve asset URLs via `new URL(path, import.meta.url)` so Vite treats each
@@ -56,6 +57,7 @@ const ASSET_URLS: Record<AssetKey, string> = {
   court_glass:             new URL('./generated/court/court_glass_foreground_v1.png',                  import.meta.url).href,
   audience_side:           new URL('./generated/audience/audience_side_v2.png',                        import.meta.url).href,
   player_movement:         new URL('./generated/player/player_movement_sheet_v1.png',                  import.meta.url).href,
+  player_actions_v2:       new URL('./generated/player/player_actions_v2_sheet.png',                    import.meta.url).href,
 };
 
 // ---- Crop rectangles ----
@@ -163,6 +165,32 @@ export const PLAYER_BACKVIEW_CROPS = {
   ready:    playerCrop(1, 1), // ready stance (row 1 col 1)
   swing:    playerCrop(3, 1), // swing (row 1 col 3)
   dive:     playerCrop(0, 2), // dive / lunge (row 2 col 0)
+} as const;
+
+/**
+ * player_actions_v2_sheet — dark-navy back-view player (faces front wall, back to
+ * camera). 4-column × 3-row grid (418×314 cells). The per-cell content was confirmed
+ * by opening the image; the mapping below follows the ACTUAL pose in each cell, not
+ * the raw grid order:
+ *   (0,0) idle_a stand-ready, racket down      (1,0) idle_b breathing, racket at side
+ *   (2,0) left turn side swing                 (3,0) right forward lunge stride
+ *   (0,1) low-left crouch step (left move)     (1,1) very upright ready, racket down
+ *   (2,1) high overhead kill swing             (3,1) side drive swing
+ *   (0,2) low side boast swing                 (1,2) big reaching drop/lunge
+ *   (2,2) low ground dive save                 (3,2) low crouch ready
+ */
+export const PLAYER_ACTIONS_V2_CROPS = {
+  idleA:      playerCrop(0, 0), // breathing frame A (racket down)
+  idleB:      playerCrop(1, 0), // breathing frame B (racket at side)
+  ready:      playerCrop(1, 1), // upright neutral ready
+  runLeft:    playerCrop(0, 1), // low-left crouch step (move left)
+  runRight:   playerCrop(3, 0), // right forward lunge stride (move right)
+  swingKill:  playerCrop(2, 1), // overhead kill (also lob)
+  swingDrop:  playerCrop(1, 2), // big reaching drop / lunge
+  swingDrive: playerCrop(3, 1), // side drive swing
+  swingBoast: playerCrop(0, 2), // low side boast swing
+  dive:       playerCrop(2, 2), // ground dive save
+  readyLow:   playerCrop(3, 2), // low crouch ready
 } as const;
 
 /**

@@ -31,6 +31,7 @@ import {
   PLAYER_LUNGE_CROPS,
   PLAYER_LATERAL_CROPS,
   PLAYER_BACKVIEW_CROPS,
+  PLAYER_ACTIONS_V2_CROPS,
   OPPONENT_CROPS,
   type Crop,
 } from '@/assets/assetLoader';
@@ -1332,32 +1333,85 @@ export class CanvasRenderer {
 
     let img: HTMLImageElement | null;
     let crop: Crop;
+    // Horizontal flip + breathing scale, applied at draw time for p1's v2 sheet.
+    let flipX = false;
+    let breathScale = 1;
 
     if (isP1) {
-      // Prefer back-view sheet for p1 (player faces front wall, back to camera).
-      const backviewImg = getImage('player_backview');
-      if (backviewImg) {
-        img = backviewImg;
+      // Prefer the v2 action sheet for p1 (player faces front wall, back to camera).
+      const actionsImg = getImage('player_actions_v2');
+      if (actionsImg) {
+        img = actionsImg;
+        const A = PLAYER_ACTIONS_V2_CROPS;
         if (diving) {
-          crop = PLAYER_BACKVIEW_CROPS.dive;
+          crop = A.dive;
         } else if (swinging) {
-          crop = PLAYER_BACKVIEW_CROPS.swing;
+          // Pick swing pose by the last stroke played.
+          switch (pl.lastStroke) {
+            case 'kill':
+            case 'lob': // lob reuses the overhead kill pose
+              crop = A.swingKill;
+              break;
+            case 'drop':
+              crop = A.swingDrop;
+              break;
+            case 'boast':
+              crop = A.swingBoast;
+              break;
+            case 'drive':
+            case 'serve':
+            default:
+              crop = A.swingDrive;
+              break;
+          }
         } else {
-          const speed = Math.hypot(pl.vel.x, pl.vel.y);
-          crop = speed > 1.0 ? PLAYER_BACKVIEW_CROPS.run : PLAYER_BACKVIEW_CROPS.ready;
+          const vx = pl.vel.x;
+          const vy = pl.vel.y;
+          const speed = Math.hypot(vx, vy);
+          const horizontal = Math.abs(vx) > Math.abs(vy);
+          if (speed > 1.0 && horizontal && vx < -1) {
+            // Moving left.
+            crop = A.runLeft;
+          } else if (speed > 1.0 && horizontal && vx > 1) {
+            // Moving right — mirror the runRight (a left-derived stride) for clear
+            // left/right distinction.
+            crop = A.runRight;
+            flipX = true;
+          } else if (speed > 1.0) {
+            // Predominantly forward/back movement → use the forward lunge stride.
+            crop = A.runRight;
+          } else {
+            // Idle: gentle breathing — alternate idleA/idleB and pulse height ±1.5%.
+            const phase = Math.sin(Date.now() * 0.0035);
+            crop = phase >= 0 ? A.idleA : A.idleB;
+            breathScale = 1 + phase * 0.015;
+          }
         }
       } else {
-        // Fallback to old sheets if backview not loaded yet
-        const speedY = pl.vel.y;
-        const useLunge = diving || speedY < -1.5;
-        if (useLunge) {
-          img = getImage('player_lunge');
-          if (!img) return false;
-          crop = diving ? PLAYER_LUNGE_CROPS.dive : PLAYER_LUNGE_CROPS.lunge;
+        // Fallback chain: previous back-view sheet, then old lunge/lateral sheets.
+        const backviewImg = getImage('player_backview');
+        if (backviewImg) {
+          img = backviewImg;
+          if (diving) {
+            crop = PLAYER_BACKVIEW_CROPS.dive;
+          } else if (swinging) {
+            crop = PLAYER_BACKVIEW_CROPS.swing;
+          } else {
+            const speed = Math.hypot(pl.vel.x, pl.vel.y);
+            crop = speed > 1.0 ? PLAYER_BACKVIEW_CROPS.run : PLAYER_BACKVIEW_CROPS.ready;
+          }
         } else {
-          img = getImage('player_lateral');
-          if (!img) return false;
-          crop = swinging ? PLAYER_LATERAL_CROPS.swing : PLAYER_LATERAL_CROPS.ready;
+          const speedY = pl.vel.y;
+          const useLunge = diving || speedY < -1.5;
+          if (useLunge) {
+            img = getImage('player_lunge');
+            if (!img) return false;
+            crop = diving ? PLAYER_LUNGE_CROPS.dive : PLAYER_LUNGE_CROPS.lunge;
+          } else {
+            img = getImage('player_lateral');
+            if (!img) return false;
+            crop = swinging ? PLAYER_LATERAL_CROPS.swing : PLAYER_LATERAL_CROPS.ready;
+          }
         }
       }
     } else {
@@ -1375,7 +1429,8 @@ export class CanvasRenderer {
 
     // Target sprite height: ~148 px at midcourt depth (scale=1), scaled by depth.
     // +25% over phase-4 baseline for stronger presence; far player still smaller via scale.
-    const spriteH = 148 * scale;
+    // breathScale adds a subtle ±1.5% idle pulse for the breathing animation.
+    const spriteH = 148 * scale * breathScale;
     // Maintain cell aspect ratio (418 / 314 ≈ 1.33)
     const spriteW = spriteH * (crop.sw / crop.sh);
 
@@ -1388,6 +1443,13 @@ export class CanvasRenderer {
       ctx.translate(foot.x, foot.y);
       ctx.rotate((pl.diveDir.x || 0) * 0.35 * lean);
       ctx.translate(-foot.x, -foot.y);
+    }
+
+    // Horizontal mirror for rightward run (so left/right strides read distinctly).
+    if (flipX) {
+      ctx.translate(foot.x, 0);
+      ctx.scale(-1, 1);
+      ctx.translate(-foot.x, 0);
     }
 
     // Motion smear ghosts behind sprite during dive
