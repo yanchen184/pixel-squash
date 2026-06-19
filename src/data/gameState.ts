@@ -68,6 +68,7 @@ export type DeadReason =
   | 'tin' // striker hit below the tin → striker loses
   | 'out' // ball went above the front out line / over a side wall top → striker loses
   | 'double-bounce' // ball bounced on the floor twice → the side that should have returned loses
+  | 'dead-after-bounce' // after its one legal floor bounce the ball touched anything (wall/floor/player) → the side that should have returned loses
   | 'not-front-wall'; // ball reached the floor twice without ever hitting the front wall valid zone → striker loses
 
 export type ShuttleState = {

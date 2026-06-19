@@ -80,6 +80,10 @@ const PRACTICE_TOSS_VZ = 6;     // upward velocity given to the tossed ball
 const PRACTICE_SLOWMO = 0.18;   // gravity multiplier while airborne — very slow rise/fall
 const PRACTICE_HIT_RANGE = 150; // horizontal distance (px) that counts as "near body" for a hit
 const PRACTICE_MISS_HITSTOP = 18; // freeze frames after a missed (dropped) serve
+// Stretch the practice-serve flight time so the launched ball travels at the same speed
+// as a match serve (the practice serve starts deeper in the court, so the raw tof made it
+// fly ~1.6–2.7× too fast). 1.65 lines the effective px/frame up with the match serve.
+const PRACTICE_SERVE_SLOWDOWN = 1.65;
 
 export function step(state: GameState, inA: InputFrame, inB: InputFrame): GameState {
   if (state.winner !== null) return state;
@@ -340,8 +344,20 @@ function applyWalls(s: ShuttleState, prev: ShuttleState): ShuttleState {
   let lastWall: Wall | null = s.lastWall;
   let deadReason: DeadReason | null = s.deadReason;
 
+  // House rule: after the ball's ONE legal floor bounce, touching ANYTHING (a wall here,
+  // a second floor bounce in applyFloorBounce, or a player in the swing check) ends the
+  // rally — the side that should have returned it loses. So if the ball has already bounced
+  // once since its last good front-wall hit, any wall contact this tick is fatal. We still
+  // reflect it (so it dribbles visibly) but stamp the dead reason. Captured BEFORE the
+  // front-wall block below, which would otherwise reset bouncesSinceWall to 0.
+  const alreadyBounced = s.hitFrontWall && s.bouncesSinceWall >= 1;
+
+  // True if the ball contacts any wall this tick (used by the post-bounce house rule below).
+  let touchedWall = false;
+
   // --- FRONT wall: ball crossed the plane y=0 moving toward it (y decreasing). ---
   if (prev.pos.y > 0 && y <= 0) {
+    touchedWall = true;
     // Strike height: interpolate z at the moment y crossed 0 (linear between prev/cur).
     const span = prev.pos.y - y;
     const t = span > 1e-6 ? prev.pos.y / span : 0; // fraction of the step to reach y=0
@@ -368,6 +384,7 @@ function applyWalls(s: ShuttleState, prev: ShuttleState): ShuttleState {
 
   // --- BACK wall: y >= depth. ---
   if (y >= COURT.depth) {
+    touchedWall = true;
     vy = -Math.abs(vy) * WALL_BOUNCE;
     y = COURT.depth - EPS;
     lastWall = 'back';
@@ -375,13 +392,23 @@ function applyWalls(s: ShuttleState, prev: ShuttleState): ShuttleState {
 
   // --- LEFT / RIGHT walls. ---
   if (x <= 0) {
+    touchedWall = true;
     vx = Math.abs(vx) * WALL_BOUNCE;
     x = EPS;
     lastWall = 'left';
   } else if (x >= COURT.width) {
+    touchedWall = true;
     vx = -Math.abs(vx) * WALL_BOUNCE;
     x = COURT.width - EPS;
     lastWall = 'right';
+  }
+
+  // House rule: a wall touched AFTER the ball already took its one legal floor bounce ends
+  // the rally. Applies to any wall (including the front wall — a post-bounce front-wall
+  // contact is no longer a fresh shot). We keep the reflection above so the dead ball
+  // dribbles visibly, but stamp the dead reason if not already dead.
+  if (alreadyBounced && touchedWall) {
+    deadReason = deadReason ?? 'dead-after-bounce';
   }
 
   return { ...s, pos: { x, y }, vel: { x: vx, y: vy }, hitFrontWall, bouncesSinceWall, lastWall, deadReason };
@@ -1117,6 +1144,14 @@ function launchPracticeServe(state: GameState, strokeId: StrokeId, tossedBall: S
     default:      wallZ = WALL_HEIGHT * 0.58; tof1 = 28; aimX = receiverSide;
   }
 
+  // The practice serve launches from the player's position (deep in the court, y≈549+),
+  // a longer run to the front wall than the match serve (which starts at y≈357). With the
+  // raw tof1 above the resulting ball speed was ~1.6–2.7× the match serve — too fast to read.
+  // Scale tof1 up so the effective speed matches the match serve (tof≈30 from y≈357 →
+  // ~11.9 px/frame). This stretches flight time uniformly, preserving each stroke's relative
+  // pace and landing design while bringing the overall speed down to rally norm.
+  tof1 *= PRACTICE_SERVE_SLOWDOWN;
+
   const tx = COURT.width * aimX;
 
   // Velocity to reach front wall (y=0) in tof1 frames
@@ -1212,8 +1247,10 @@ function scorePoint(state: GameState): GameState {
   const reason = state.shuttle.deadReason;
 
   let winnerSide: Side;
-  if (reason === 'double-bounce') {
-    // The striker hit a good ball the opponent failed to return → striker wins.
+  if (reason === 'double-bounce' || reason === 'dead-after-bounce') {
+    // The striker hit a good ball that died after its one legal bounce (a second bounce, or
+    // a wall/player touch post-bounce) → the side that should have returned it loses, so the
+    // striker wins.
     winnerSide = hitter !== null ? hitter : state.server;
   } else {
     // tin / out / not-front-wall → striker faulted → opponent wins.

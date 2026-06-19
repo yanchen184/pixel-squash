@@ -193,6 +193,95 @@ describe('physics audit — death conditions', () => {
     console.log(`[death:double-bounce] floor bounces seen=${bounces} → deadReason="${reason}" (FLOOR_BOUNCE=${FLOOR_BOUNCE})`);
     expect(reason).toBe('double-bounce');
   });
+
+  it('after its one legal floor bounce, touching a wall kills the ball (dead-after-bounce)', () => {
+    // House rule: a legal ball that has already taken its single floor bounce dies the
+    // instant it touches anything. Here we set bouncesSinceWall=1 (the one allowed bounce
+    // already happened) and send the ball laterally into the right side wall in the air.
+    let s = createInitialState();
+    s = {
+      ...s,
+      phase: 'rally',
+      shuttle: { ...s.shuttle, inPlay: true, hitFrontWall: true, lastHitBy: 0,
+        pos: { x: COURT.width - 30, y: 500 }, z: 200, vel: { x: 14, y: 0 }, vz: 0,
+        bouncesSinceWall: 1 },
+    };
+    let reason: string | null = null;
+    for (let i = 0; i < 60; i++) {
+      s = step(s, NO_INPUT, NO_INPUT);
+      if (s.shuttle.deadReason) { reason = s.shuttle.deadReason; break; }
+    }
+    // eslint-disable-next-line no-console
+    console.log(`[death:dead-after-bounce] post-bounce side-wall touch → deadReason="${reason}"`);
+    expect(reason).toBe('dead-after-bounce');
+  });
+
+  it('a wall touch BEFORE the floor bounce does NOT kill (regression guard)', () => {
+    // The same lateral shot but with bouncesSinceWall=0 (no floor bounce yet) is a normal
+    // rally ball — hitting the side wall must reflect it, never end the rally.
+    let s = createInitialState();
+    s = {
+      ...s,
+      phase: 'rally',
+      shuttle: { ...s.shuttle, inPlay: true, hitFrontWall: true, lastHitBy: 0,
+        pos: { x: COURT.width - 30, y: 500 }, z: 200, vel: { x: 14, y: 0 }, vz: 0,
+        bouncesSinceWall: 0 },
+    };
+    let reason: string | null = null;
+    for (let i = 0; i < 30; i++) {
+      s = step(s, NO_INPUT, NO_INPUT);
+      if (s.shuttle.deadReason) { reason = s.shuttle.deadReason; break; }
+    }
+    // eslint-disable-next-line no-console
+    console.log(`[death:pre-bounce-wall] side-wall touch before any floor bounce → deadReason="${reason}" (expect null)`);
+    expect(reason).toBeNull();
+  });
+});
+
+describe('physics audit — practice serve speed', () => {
+  /** Peak |vy| while the ball is live = how fast it drives toward the front wall. */
+  function peakVy(s0: GameState, frames: number): number {
+    let s = s0;
+    let peak = 0;
+    for (let i = 0; i < frames; i++) {
+      const inp = s.awaitingServeChoice ? SERVE_LEFT : NO_INPUT;
+      s = step(s, inp, NO_INPUT);
+      if (s.shuttle.inPlay) {
+        peak = Math.max(peak, Math.abs(s.shuttle.vel.y));
+      }
+    }
+    return peak;
+  }
+
+  it('a practice M-key serve launches at roughly the same speed as a match serve', () => {
+    // Match serve: drive a normal match from the menu serve and read its launch speed.
+    // The first serve waits on the box choice + a short countdown, so give it room.
+    const matchVy = peakVy(createInitialState(), 120);
+
+    // Practice serve: build a practice toss state, swing to enter preview, then tap M
+    // (nextStop) repeatedly to walk the preview and launch into the rally.
+    let s: GameState = { ...createInitialState(), gameMode: 'practice', awaitingServeChoice: false,
+      phase: 'serve', serveSubPhase: 'toss' };
+    const M = { ...NO_INPUT, nextStop: true };
+    const SWING_DRIVE = { ...NO_INPUT, swing: true, stroke: 'drive' as const };
+    s = step(s, M, NO_INPUT);                 // toss → airborne
+    s = step(s, SWING_DRIVE, NO_INPUT);       // swing near body → preview
+    // Walk the preview to launch: tap M until the ball is live in the rally.
+    let practiceVy = 0;
+    for (let i = 0; i < 60 && practiceVy === 0; i++) {
+      s = step(s, M, NO_INPUT);
+      // After launch the ball is in play; sample its drive speed over the next few frames.
+      if (s.shuttle.inPlay && s.phase === 'rally') {
+        practiceVy = peakVy(s, 20);
+      }
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(`[serve-speed] match |vy|=${matchVy.toFixed(1)}  practice |vy|=${practiceVy.toFixed(1)}  ratio=${(practiceVy / matchVy).toFixed(2)}`);
+    expect(practiceVy).toBeGreaterThan(0);
+    // The fix targets parity; allow a generous band (different strokes/positions differ a bit).
+    expect(practiceVy).toBeLessThan(matchVy * 1.5);
+  });
 });
 
 describe('physics audit — AI rally quality', () => {
