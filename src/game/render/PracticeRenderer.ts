@@ -26,6 +26,8 @@ import {
   TIN_HEIGHT,
   FRONT_OUT_HEIGHT,
   SERVE_LINE_Y,
+  SERVICE_BOX_SIZE,
+  SERVICE_BOX_BACK_Y,
   WALL_HEIGHT,
   SWING_COOLDOWN_FRAMES,
   type GameState,
@@ -437,12 +439,12 @@ export class PracticeRenderer {
     ctx.stroke();
 
     // ── Service boxes (WSF rules) ──────────────────────────────────────────
-    // Each box is a SQUARE: 1.6m × 1.6m in real-world = 161px × 161px game-space
+    // Each box is a SQUARE: 1.6m × 1.6m = SERVICE_BOX_SIZE px (160), tucked into the back
+    // CORNERS against the side walls (a square formed by the short line + side wall):
     //   Front edge  = short line (SERVE_LINE_Y = 549px)
-    //   Back edge   = SERVE_LINE_Y + 161 = 710px
-    //   Left box:  x = [0, 320]    Right box: x = [320, 640]
-    const SERVICE_BOX_DEPTH = 161; // 1.6m / 9.75m * 980px
-    const SERVICE_BOX_BACK  = SERVE_LINE_Y + SERVICE_BOX_DEPTH; // 710px
+    //   Back edge   = SERVICE_BOX_BACK_Y (709px)
+    //   Left box:  x = [0, 160]    Right box: x = [width-160, width]
+    const SERVICE_BOX_BACK = SERVICE_BOX_BACK_Y;
 
     const inServe = s.phase === 'serve' && (s.serveSubPhase === 'toss' || s.serveSubPhase === 'swing');
 
@@ -452,8 +454,8 @@ export class PracticeRenderer {
     }
 
     for (let box = 0; box < 2; box++) {
-      const x0 = box === 0 ? 0 : COURT.width / 2;
-      const x1 = box === 0 ? COURT.width / 2 : COURT.width;
+      const x0 = box === 0 ? 0 : COURT.width - SERVICE_BOX_SIZE;
+      const x1 = box === 0 ? SERVICE_BOX_SIZE : COURT.width;
       // Service box: short line → back edge of box (1.6m square)
       const [sl0x, sl0y] = floorCorner(x0, SERVE_LINE_Y);
       const [sl1x, sl1y] = floorCorner(x1, SERVE_LINE_Y);

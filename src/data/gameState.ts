@@ -179,6 +179,15 @@ export const TIN_HEIGHT = 50;
 export const FRONT_OUT_HEIGHT = 480;
 /** Short service line: a serve's first floor bounce must land BEHIND this (y > line). */
 export const SERVE_LINE_Y = 549;
+/**
+ * Service box geometry (WSF: a 1.6m square). Real-world 1.6m / 9.75m × 980px ≈ 161px deep,
+ * and 1.6m wide is the SAME 161px — it is a square, NOT half the 6.4m court width (320px).
+ * Each box hugs the OUTER side wall (real squash service boxes sit in the back corners):
+ *   left box = [0, SIZE]    right box = [width - SIZE, width]
+ * Shared by the renderer (drawn box) and the sim (serve-box player clamp) so they never drift.
+ */
+export const SERVICE_BOX_SIZE = 160;
+export const SERVICE_BOX_BACK_Y = SERVE_LINE_Y + SERVICE_BOX_SIZE; // 709px
 export const FLOOR_Z = 0;
 
 export const STAMINA_MAX = 100;

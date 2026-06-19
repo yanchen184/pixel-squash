@@ -13,6 +13,7 @@ import {
   FRONT_OUT_HEIGHT,
   WALL_HEIGHT,
   SERVE_LINE_Y,
+  SERVICE_BOX_SIZE,
   POINTS_TO_WIN,
   WIN_BY,
   STAMINA_MAX,
@@ -268,27 +269,42 @@ function movePlayer(pl: PlayerState, input: InputFrame, side: Side, shuttle: Shu
   // the server is in the correct box and the receiver stays in the opposite box.
   // This also covers the whole practice manual-serve flow (toss/airborne/swing/
   // preview), so the server can only reposition inside their box while serving.
+  // The serve-box clamp applies up to (and including) the actual serve strike. In practice
+  // mode the human server is FREE the moment the ball leaves the racket — once the flow reaches
+  // 'airborne'/'preview' (ball struck), they can roam the whole court to chase the rebound.
+  const practiceServerFreed =
+    state != null &&
+    state.gameMode === 'practice' &&
+    side === state.server &&
+    (state.serveSubPhase === 'airborne' || state.serveSubPhase === 'preview');
   const inServeFlow =
     state != null &&
     state.phase === 'serve' &&
-    (state.phaseTimer > 0 || state.serveSubPhase != null);
+    (state.phaseTimer > 0 || state.serveSubPhase != null) &&
+    !practiceServerFreed;
   if (state && inServeFlow) {
-    const midX = COURT.width / 2;
     const isServer = side === state.server;
+    // Service boxes are 1.6m squares tucked into the back CORNERS against the side walls (WSF):
+    //   left box  = [0, SERVICE_BOX_SIZE]   right box = [width - SERVICE_BOX_SIZE, width]
+    // Practice mode lets the server pick their box by standing in either corner (no menu), so
+    // the server may stand in EITHER corner box. The receiver (and match-mode server) is pinned
+    // to the box dictated by serveBox.
+    const freeChoice = state.gameMode === 'practice' && isServer;
     const box = isServer ? state.serveBox : (state.serveBox === 0 ? 1 : 0);
-    // Server stays in their service box (behind SERVE_LINE_Y, left or right of centre).
-    // Receiver stays in opposite box.
-    if (isServer) {
-      // Server must be behind the short service line
-      y = Math.max(y, SERVE_LINE_Y + PLAYER_MARGIN);
-      // Server constrained to their box (left=x<midX, right=x>midX)
-      if (box === 0) x = Math.min(x, midX - PLAYER_MARGIN);
-      else x = Math.max(x, midX + PLAYER_MARGIN);
+    // Behind the short service line for everyone in the serve flow.
+    y = Math.max(y, SERVE_LINE_Y + PLAYER_MARGIN);
+    if (freeChoice) {
+      // Practice server picks their box by WALKING to a corner — keep them behind the short
+      // line but free to cross the whole width, so they can reach either side wall. The legal
+      // foot-in-box position is enforced by snapping x into the chosen corner box at toss time
+      // (see stepPracticeServe), not by a sticky mid-court wall here.
+      x = clampX(x);
+    } else if (box === 0) {
+      // Left corner box: [0, SERVICE_BOX_SIZE]
+      x = clamp(x, PLAYER_MARGIN, SERVICE_BOX_SIZE - PLAYER_MARGIN);
     } else {
-      // Receiver stays in the opposite back box
-      y = Math.max(y, SERVE_LINE_Y + PLAYER_MARGIN);
-      if (box === 0) x = Math.min(x, midX - PLAYER_MARGIN);
-      else x = Math.max(x, midX + PLAYER_MARGIN);
+      // Right corner box: [width - SERVICE_BOX_SIZE, width]
+      x = clamp(x, COURT.width - SERVICE_BOX_SIZE + PLAYER_MARGIN, COURT.width - PLAYER_MARGIN);
     }
     x = clampX(x);
     y = clampY(y);
@@ -965,9 +981,17 @@ function stepPracticeServe(state: GameState, inA: InputFrame): GameState {
       // falls (in slow-motion, see 'airborne'). This is a strategy game, not a
       // reaction game — the slow fall gives the player time to read the
       // opponent's position and choose a stroke before swinging.
+      // The player picks their box by walking to a corner — lock serveBox in at toss time from
+      // which half they're in, then snap their foot (and the ball) into that 160px corner box
+      // so the serve starts from a legal position.
+      const serveBox: 0 | 1 = state.p1.pos.x < COURT.width / 2 ? 0 : 1;
+      const boxX = serveBox === 0
+        ? clamp(state.p1.pos.x, PLAYER_MARGIN, SERVICE_BOX_SIZE - PLAYER_MARGIN)
+        : clamp(state.p1.pos.x, COURT.width - SERVICE_BOX_SIZE + PLAYER_MARGIN, COURT.width - PLAYER_MARGIN);
+      const p1 = { ...state.p1, pos: { x: Math.round(boxX), y: state.p1.pos.y } };
       const tossed = {
         ...state.shuttle,
-        pos: { x: state.p1.pos.x, y: state.p1.pos.y },
+        pos: { x: p1.pos.x, y: p1.pos.y },
         z: PRACTICE_TOSS_Z,
         vel: { x: 0, y: 0 },
         vz: PRACTICE_TOSS_VZ,
@@ -977,7 +1001,7 @@ function stepPracticeServe(state: GameState, inA: InputFrame): GameState {
         hitFrontWall: false,
         deadReason: null as null,
       };
-      return { ...state, shuttle: tossed, serveSubPhase: 'airborne' };
+      return { ...state, p1, shuttle: tossed, serveBox, serveSubPhase: 'airborne' };
     }
     const p1s = movePlayer(state.p1, inA, 0, state.shuttle, state);
     return { ...state, p1: p1s };
