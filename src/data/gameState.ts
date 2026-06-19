@@ -233,7 +233,10 @@ export const APEX_CEIL = 460;
 // ---- Wall bounce restitution ----
 export const WALL_BOUNCE = 0.92; // side/back wall: velocity retained on bounce
 export const FRONT_WALL_BOUNCE = 0.95; // front wall — retain more energy so ball carries deep
-export const FLOOR_BOUNCE = 0.42; // floor bounce: vertical restitution — low so the ball settles
+export const FLOOR_BOUNCE = 0.58; // floor bounce: vertical restitution — springy so the ball
+                                  // visibly bounces (0.42 felt dead). The runaway-lob problem was
+                                  // horizontal skid, not vertical bounce, so FLOOR_FRICTION (below)
+                                  // is what tames it — keep vertical lively.
 export const FLOOR_FRICTION = 0.6; // horizontal speed retained per floor bounce — kills the runaway
                                    // skid that let a lobbed ball cross the whole court each bounce
 
