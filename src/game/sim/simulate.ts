@@ -84,6 +84,13 @@ const PRACTICE_MISS_HITSTOP = 18; // freeze frames after a missed (dropped) serv
 // as a match serve (the practice serve starts deeper in the court, so the raw tof made it
 // fly ~1.6–2.7× too fast). 1.65 lines the effective px/frame up with the match serve.
 const PRACTICE_SERVE_SLOWDOWN = 1.65;
+// Slow-motion factor for the M-key preview. Instead of replaying a pre-sampled path (which
+// looked uneven — fast where path points were sparse, never decelerating), the preview now
+// runs the REAL ball physics (stepBall → applyWalls → applyFloorBounce) one sub-step per
+// tick, with displacement and gravity scaled by this factor. The ball therefore moves by its
+// own velocity and slows naturally (air drag + floor friction), matching the calm pace of the
+// toss (PRACTICE_SLOWMO = 0.18). 0.18 keeps the two in sync.
+const PRACTICE_PREVIEW_SLOWMO = 0.18;
 
 export function step(state: GameState, inA: InputFrame, inB: InputFrame): GameState {
   if (state.winner !== null) return state;
@@ -444,6 +451,33 @@ function applyFloorBounce(s: ShuttleState, _prev: ShuttleState): ShuttleState {
     vel: { x: s.vel.x * FLOOR_FRICTION, y: s.vel.y * FLOOR_FRICTION },
     bouncesSinceWall,
   };
+}
+
+/**
+ * Slow-motion physics sub-step for the M-key serve preview. Advances the ball by ONE real
+ * physics tick but with displacement and the gravity increment scaled by `slowmo` (< 1), so
+ * the ball drifts at a readable pace. Velocity itself is kept at its true magnitude — only
+ * how far the ball travels per tick is slowed — so wall/floor restitution (FRONT_WALL_BOUNCE,
+ * FLOOR_BOUNCE, FLOOR_FRICTION) behave exactly as in a live rally. This is what makes the
+ * preview decelerate naturally (drag + floor friction) instead of replaying a pre-sampled
+ * path at an uneven, never-slowing pace.
+ */
+function previewPhysicsStep(s: ShuttleState, slowmo: number): ShuttleState {
+  if (!s.inPlay) return s;
+  const vz = s.vz - GRAVITY * slowmo;
+  // Integrate position with slowed displacement; bleed horizontal speed with the same air
+  // drag the live ball uses (per real tick, not per slowed sub-step, so total energy loss
+  // over the flight matches the rally — the preview is a faithful slow-mo, not a different sim).
+  const moved: ShuttleState = {
+    ...s,
+    pos: { x: s.pos.x + s.vel.x * slowmo, y: s.pos.y + s.vel.y * slowmo },
+    vel: { x: s.vel.x * SHUTTLE_DRAG, y: s.vel.y * SHUTTLE_DRAG },
+    z: s.z + vz * slowmo,
+    vz,
+    deadReason: null,
+  };
+  const walled = applyWalls(moved, s);
+  return applyFloorBounce(walled, s);
 }
 
 /**
@@ -863,6 +897,45 @@ export function sampleServePath(
 }
 
 /**
+ * Z height the previewed/launched ball starts from when struck (must match launchPracticeServe's z0).
+ */
+const PREVIEW_START_Z = 80;
+
+/**
+ * Enter the M-key preview: arm the ball with its REAL serve velocity and freeze it at the
+ * player's position. The ball is in play but motionless until the first M press releases it;
+ * from then on each M press releases it again after it freezes at a wall/floor contact. The
+ * flight uses real physics in slow-motion (previewPhysicsStep), so it decelerates naturally.
+ *
+ * previewPathIdx is reused as the release flag: -1 = frozen (waiting for M), 0 = flying.
+ */
+function enterPreview(state: GameState, stroke: StrokeId, path: PathPoint[]): GameState {
+  const pos: Vec2 = { x: state.p1.pos.x, y: state.p1.pos.y };
+  const vel = practiceServeVelocity(state, stroke, pos, PREVIEW_START_Z);
+  return {
+    ...state,
+    serveSubPhase: 'preview',
+    previewPath: path,
+    previewStroke: stroke,
+    previewStep: -1,
+    previewPathIdx: -1, // frozen: wait for first M
+    shuttle: {
+      ...state.shuttle,
+      pos,
+      z: PREVIEW_START_Z,
+      vel: { x: vel.x, y: vel.y },
+      vz: vel.vz,
+      inPlay: true,
+      lastHitBy: state.server,
+      bouncesSinceWall: 0,
+      hitFrontWall: false,
+      lastWall: null,
+      deadReason: null,
+    },
+  };
+}
+
+/**
  * Practice-mode 3-step serve:
  *   'choice'  — pick L/R box (reuses awaitingServeChoice, handled above; lands here with null after countdown)
  *   'toss'    — press any swing key → ball pops up (small toss arc)
@@ -913,15 +986,7 @@ function stepPracticeServe(state: GameState, inA: InputFrame): GameState {
       const nearBody = Math.hypot(dx, dy) <= PRACTICE_HIT_RANGE;
       if (nearBody) {
         const path = computePreviewPath(state.p1.pos, inA.stroke, state);
-        return {
-          ...state,
-          serveSubPhase: 'preview',
-          previewPath: path,
-          previewStroke: inA.stroke,
-          previewStep: -1,
-          previewPathIdx: -1,
-          shuttle: { ...sh, inPlay: false },
-        };
+        return enterPreview(state, inA.stroke, path);
       }
       // Swung but the ball was too far — the swing still commits (cooldown) but
       // the ball keeps drifting; if it lands they lose the point.
@@ -941,98 +1006,57 @@ function stepPracticeServe(state: GameState, inA: InputFrame): GameState {
   if (sub === 'swing') {
     if (inA.swing) {
       const path = computePreviewPath(state.p1.pos, inA.stroke, state);
-      return {
-        ...state,
-        serveSubPhase: 'preview',
-        previewPath: path,
-        previewStroke: inA.stroke,
-        previewStep: -1,
-        previewPathIdx: -1,
-      };
+      return enterPreview(state, inA.stroke, path);
     }
     const p1s = movePlayer(state.p1, inA, 0, state.shuttle, state);
     return { ...state, p1: p1s };
   }
 
-  // ── preview: path visible; M starts ball animating to next wall stop ──
+  // ── preview: ball armed with its real serve velocity; M releases it to fly (real physics,
+  //    slow-motion) until it hits a wall or the floor, where it freezes for the next M. ──
   if (sub === 'preview') {
-    const path = state.previewPath ?? [];
-    const stops = path.filter(p => p.wall != null);
-
-    // previewPathIdx >= 0 means animation is active (idx = current path point to show)
-    // previewPathIdx === -1 means waiting for next M press
+    // previewPathIdx >= 0 → ball is flying (release one segment); -1 → frozen, waiting for M.
     if (state.previewPathIdx >= 0) {
-      const idx = state.previewPathIdx;
-      // Find the target stop: first wall-contact point at or after idx
-      const targetStopIdx = stops.findIndex(stop => path.indexOf(stop) >= idx);
-      const targetPathIdx = targetStopIdx >= 0 ? path.indexOf(stops[targetStopIdx]) : path.length - 1;
+      const before = state.shuttle;
+      const after = previewPhysicsStep(before, PRACTICE_PREVIEW_SLOWMO);
+      const p1s = movePlayer(state.p1, inA, 0, after, state);
 
-      if (idx < path.length) {
-        const pt = path[idx];
-        const animShuttle = {
-          ...state.shuttle,
-          pos: { x: pt.x, y: pt.y ?? state.shuttle.pos.y },
-          z: pt.z,
-          vel: { x: 0, y: 0 }, vz: 0,
-          inPlay: false,
+      // The shot is dead (out / tin / 2nd-bounce / post-bounce wall) → hand to rally so the
+      // normal scoring path resolves it, exactly as a launched serve would end.
+      if (after.deadReason != null || after.bouncesSinceWall >= 2) {
+        return {
+          ...state,
+          shuttle: after,
+          p1: p1s,
+          serveSubPhase: null,
+          previewPath: null,
+          previewStroke: null,
+          previewStep: -1,
+          previewPathIdx: -1,
+          phase: 'rally' as const,
         };
-        const p1s = movePlayer(state.p1, inA, 0, animShuttle, state);
-
-        if (idx >= targetPathIdx) {
-          // Reached the target stop — freeze and wait for next M (-1 = idle)
-          return {
-            ...state,
-            shuttle: animShuttle,
-            p1: p1s,
-            previewPathIdx: -1,
-            previewStep: targetStopIdx >= 0 ? targetStopIdx : state.previewStep,
-          };
-        }
-        return { ...state, shuttle: animShuttle, p1: p1s, previewPathIdx: idx + 1 };
       }
 
-      // Past end of path → launch into rally
-      const stroke = state.previewStroke ?? 'drive';
-      const fakeShuttle = {
-        pos: { x: state.p1.pos.x, y: state.p1.pos.y },
-        z: 80, vel: { x: 0, y: 0 }, vz: 0,
-        lastHitBy: null as null, inPlay: true,
-        bouncesSinceWall: 0, hitFrontWall: false,
-        lastWall: null as null, deadReason: null as null,
-        landing: null as null, landingEta: 0,
-      };
-      return launchPracticeServe(
-        { ...state, previewPath: null, previewStroke: null, previewStep: -1, previewPathIdx: -1 },
-        stroke, fakeShuttle,
-      );
+      // Reached a wall or its first floor bounce → freeze here and wait for the next M press.
+      const hitWall = after.lastWall !== before.lastWall && after.lastWall != null;
+      const bounced = after.bouncesSinceWall > before.bouncesSinceWall;
+      if (hitWall || bounced) {
+        return {
+          ...state,
+          shuttle: { ...after, vel: after.vel, vz: after.vz },
+          p1: p1s,
+          previewPathIdx: -1, // freeze; velocity is retained so the next M resumes the flight
+        };
+      }
+
+      // Still mid-flight → keep gliding.
+      return { ...state, shuttle: after, p1: p1s, previewPathIdx: 0 };
     }
 
-    // M key → start animating toward next stop (or launch if all stops done)
+    // Frozen. M releases the ball to continue its flight from the current (real) velocity.
     if (inA.nextStop) {
-      const nextStep = state.previewStep + 1;
-
-      if (nextStep < stops.length) {
-        // Start from the point after current stop (or 0 if at player)
-        const curStop = stops[state.previewStep];
-        const startPtIdx = state.previewStep < 0 ? 0 : path.indexOf(curStop) + 1;
-        const p1s = movePlayer(state.p1, inA, 0, state.shuttle, state);
-        return { ...state, p1: p1s, previewPathIdx: startPtIdx };
-      }
-
-      // All stops done → launch
-      const stroke = state.previewStroke ?? 'drive';
-      const fakeShuttle = {
-        pos: { x: state.p1.pos.x, y: state.p1.pos.y },
-        z: 80, vel: { x: 0, y: 0 }, vz: 0,
-        lastHitBy: null as null, inPlay: true,
-        bouncesSinceWall: 0, hitFrontWall: false,
-        lastWall: null as null, deadReason: null as null,
-        landing: null as null, landingEta: 0,
-      };
-      return launchPracticeServe(
-        { ...state, previewPath: null, previewStroke: null, previewStep: -1, previewPathIdx: -1 },
-        stroke, fakeShuttle,
-      );
+      const p1s = movePlayer(state.p1, inA, 0, state.shuttle, state);
+      return { ...state, p1: p1s, previewPathIdx: 0 };
     }
 
     // Swing keys work normally — player can hit the frozen ball during preview
@@ -1113,20 +1137,18 @@ function computePreviewPath(
 }
 
 /**
- * Launch a practice serve with stroke-type variations:
- *   kill  → low fast serve that hugs the front wall (opponent scrambles)
- *   lob   → high floaty serve to back corner
- *   drive → standard mid-height serve (default)
- *   drop  → angled softer serve toward front corner
- *   boast → same as drive for serves (boast is a rally shot)
+ * Compute the launch velocity for a practice serve from `pos`/`z0` for the given stroke.
+ * Shared by launchPracticeServe (live launch) and the M-key preview (slow-mo flight) so the
+ * previewed flight and the real serve use the SAME initial velocity — the preview is a true
+ * slow-motion of what will happen, not a separately-tuned animation.
  */
-function launchPracticeServe(state: GameState, strokeId: StrokeId, tossedBall: ShuttleState): GameState {
-  const pos: Vec2 = { x: tossedBall.pos.x, y: tossedBall.pos.y };
-  const z0 = tossedBall.z > 40 ? tossedBall.z : 80; // ensure reasonable toss height
-
-  // Each stroke targets a specific front-wall height and rebound landing zone.
+function practiceServeVelocity(
+  state: GameState,
+  strokeId: StrokeId,
+  pos: Vec2,
+  z0: number,
+): { x: number; y: number; vz: number } {
   // tof1 = frames to reach front wall; wallZ = height at front wall (game-space px)
-  // landingY = where the ball should land after rebounding (y=0 is front wall, depth=far)
   // aimX = left/right fraction of court width for the wall strike
   const receiverSide = state.serveBox === 0 ? 0.7 : 0.3;
   const straightSide = state.serveBox === 0 ? 0.3 : 0.7;
@@ -1153,38 +1175,11 @@ function launchPracticeServe(state: GameState, strokeId: StrokeId, tossedBall: S
   tof1 *= PRACTICE_SERVE_SLOWDOWN;
 
   const tx = COURT.width * aimX;
-
-  // Velocity to reach front wall (y=0) in tof1 frames
-  const vx = (tx - pos.x) / tof1;
-  const vy = (0 - pos.y) / tof1;   // negative (toward front wall)
-  const vz = (wallZ - z0 + 0.5 * GRAVITY * tof1 * tof1) / tof1;
-
-  // After front-wall bounce: vy flips to positive (toward back), attenuated by FRONT_WALL_BOUNCE
-  // We want ball to land at landingY. Time to reach floor after bounce:
-  //   landingY = vy_after * tof2  →  tof2 = landingY / vy_after
-  // We don't re-set vy — physics will handle the bounce. The tof1 already gives correct vy.
-  // Trust FRONT_WALL_BOUNCE (0.95) to carry the ball naturally. The landingY above is design
-  // intent; the actual landing is physics. The key is choosing tof1 that puts enough vy.
-  // vy at wall = vy = -pos.y/tof1; after bounce = pos.y/tof1 * 0.95; land at ≈ pos.y * 0.95
-  // So to reach landingY > pos.y we need smaller tof1 (faster = more energy).
-  // The values above are tuned for these landing zones.
-
-  const shuttle: ShuttleState = predictLanding({
-    pos,
-    z: z0,
-    vel: { x: vx, y: vy },
-    vz,
-    lastHitBy: state.server,
-    inPlay: true,
-    bouncesSinceWall: 0,
-    hitFrontWall: false,
-    lastWall: null,
-    deadReason: null,
-    landing: null,
-    landingEta: 0,
-  });
-
-  return { ...state, phase: 'rally', serveSubPhase: null, tossZ: 0, shuttle };
+  return {
+    x: (tx - pos.x) / tof1,            // toward aim point
+    y: (0 - pos.y) / tof1,             // negative (toward front wall)
+    vz: (wallZ - z0 + 0.5 * GRAVITY * tof1 * tof1) / tof1,
+  };
 }
 
 function launchServe(state: GameState): GameState {

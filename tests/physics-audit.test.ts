@@ -259,21 +259,21 @@ describe('physics audit — practice serve speed', () => {
     const matchVy = peakVy(createInitialState(), 120);
 
     // Practice serve: build a practice toss state, swing to enter preview, then tap M
-    // (nextStop) repeatedly to walk the preview and launch into the rally.
+    // (nextStop) to release the ball. The preview now runs REAL physics in slow-motion, so
+    // the ball's velocity magnitude is the true serve speed (slow-mo only scales how far it
+    // travels per tick, not the velocity). Read the peak |vy| during the preview flight.
     let s: GameState = { ...createInitialState(), gameMode: 'practice', awaitingServeChoice: false,
       phase: 'serve', serveSubPhase: 'toss' };
     const M = { ...NO_INPUT, nextStop: true };
     const SWING_DRIVE = { ...NO_INPUT, swing: true, stroke: 'drive' as const };
     s = step(s, M, NO_INPUT);                 // toss → airborne
-    s = step(s, SWING_DRIVE, NO_INPUT);       // swing near body → preview
-    // Walk the preview to launch: tap M until the ball is live in the rally.
+    s = step(s, SWING_DRIVE, NO_INPUT);       // swing near body → preview (ball armed, frozen)
+    // Release with M and sample the ball's real velocity as it flies the slow-mo preview.
     let practiceVy = 0;
-    for (let i = 0; i < 60 && practiceVy === 0; i++) {
+    for (let i = 0; i < 800; i++) {
       s = step(s, M, NO_INPUT);
-      // After launch the ball is in play; sample its drive speed over the next few frames.
-      if (s.shuttle.inPlay && s.phase === 'rally') {
-        practiceVy = peakVy(s, 20);
-      }
+      if (s.shuttle.inPlay) practiceVy = Math.max(practiceVy, Math.abs(s.shuttle.vel.y));
+      if (s.phase === 'rally' && s.serveSubPhase === null) break; // shot resolved
     }
 
     // eslint-disable-next-line no-console
