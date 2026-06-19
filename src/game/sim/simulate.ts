@@ -91,6 +91,12 @@ const PRACTICE_SERVE_SLOWDOWN = 1.65;
 // own velocity and slows naturally (air drag + floor friction), matching the calm pace of the
 // toss (PRACTICE_SLOWMO = 0.18). 0.18 keeps the two in sync.
 const PRACTICE_PREVIEW_SLOWMO = 0.18;
+// Practice serves shed more horizontal speed on each floor bounce than a match rally, so the
+// "last bounce" doesn't skid most of the way to the back wall (which read as "way too far" in
+// the slow-motion preview). Match physics keep the livelier FLOOR_FRICTION (0.6); this lower
+// value is applied ONLY to the practice serve flight (preview ball + its guide path), leaving
+// match rallies untouched. 0.35 lands the 2nd bounce in the mid-front court for all strokes.
+const PRACTICE_FLOOR_FRICTION = 0.35;
 
 export function step(state: GameState, inA: InputFrame, inB: InputFrame): GameState {
   if (state.winner !== null) return state;
@@ -426,7 +432,11 @@ function applyWalls(s: ShuttleState, prev: ShuttleState): ShuttleState {
  * before a player must return it; the SECOND bounce ends the rally. If the ball reaches
  * a floor bounce without ever hitting the front wall valid zone, the striker faulted.
  */
-function applyFloorBounce(s: ShuttleState, _prev: ShuttleState): ShuttleState {
+function applyFloorBounce(
+  s: ShuttleState,
+  _prev: ShuttleState,
+  floorFriction: number = FLOOR_FRICTION,
+): ShuttleState {
   if (!s.inPlay) return s;
   if (s.z > 0 || s.vz > 0) return s; // not landing this tick
   const bouncesSinceWall = s.bouncesSinceWall + 1;
@@ -448,7 +458,7 @@ function applyFloorBounce(s: ShuttleState, _prev: ShuttleState): ShuttleState {
     ...s,
     z: EPS,
     vz: Math.abs(s.vz) * FLOOR_BOUNCE,
-    vel: { x: s.vel.x * FLOOR_FRICTION, y: s.vel.y * FLOOR_FRICTION },
+    vel: { x: s.vel.x * floorFriction, y: s.vel.y * floorFriction },
     bouncesSinceWall,
   };
 }
@@ -477,7 +487,7 @@ function previewPhysicsStep(s: ShuttleState, slowmo: number): ShuttleState {
     deadReason: null,
   };
   const walled = applyWalls(moved, s);
-  return applyFloorBounce(walled, s);
+  return applyFloorBounce(walled, s, PRACTICE_FLOOR_FRICTION);
 }
 
 /**
@@ -823,6 +833,7 @@ export function sampleServePath(
   vel: { x: number; y: number },
   vz: number,
   sampleEvery = 3,
+  floorFriction: number = FLOOR_FRICTION,
 ): PathPoint[] {
   const points: PathPoint[] = [{ x: startPos.x, y: startPos.y, z: startZ }];
   let x = startPos.x, y = startPos.y, z = startZ;
@@ -885,8 +896,8 @@ export function sampleServePath(
       points.push({ x, y, z: 0, wall: 'floor' });
       if (floorHits >= 2) break;
       curVz = Math.abs(curVz) * FLOOR_BOUNCE;
-      vx *= FLOOR_FRICTION; // shed horizontal skid on the rebound (mirror live physics)
-      vy *= FLOOR_FRICTION;
+      vx *= floorFriction; // shed horizontal skid on the rebound (mirror live physics)
+      vy *= floorFriction;
       z = EPS;
     }
     if (t % sampleEvery === 0) points.push({ x, y, z });
@@ -1108,32 +1119,23 @@ function loseServeAttempt(state: GameState): GameState {
   };
 }
 
-/** Compute serve preview path from player's current position for the given stroke. */
+/**
+ * Compute the dashed serve-preview trajectory. Uses the SAME launch velocity as the ball
+ * (practiceServeVelocity) so the dashed line and the ball trace the exact same arc — the ball
+ * now flies real physics, so the guide must be the real physics path, not a separately-tuned
+ * curve (which is why the ball used to drift off the dashes).
+ */
 function computePreviewPath(
   playerPos: { x: number; y: number },
   strokeId: StrokeId,
   state: GameState,
 ): PathPoint[] {
-  const z0 = 80;
-  const receiverSide = state.serveBox === 0 ? 0.7 : 0.3;
-  const straightSide = state.serveBox === 0 ? 0.3 : 0.7;
-
-  let wallZ: number, tof1: number, aimX: number;
-  switch (strokeId) {
-    case 'kill':  wallZ = WALL_HEIGHT * 0.42; tof1 = 18; aimX = receiverSide; break;
-    case 'lob':   wallZ = WALL_HEIGHT * 0.85; tof1 = 28; aimX = 0.5;          break; // straight, high → back wall
-    case 'drop':  wallZ = WALL_HEIGHT * 0.48; tof1 = 26; aimX = straightSide; break;
-    // boast = the "打歪出界" demo: aimed too high so it sails OVER the front out line.
-    // wallZ pushes the front-wall strike point above FRONT_OUT_HEIGHT → sampleServePath
-    // flags it 'out' and ends the path with the ball flying out of court.
-    case 'boast': wallZ = FRONT_OUT_HEIGHT * 1.15; tof1 = 24; aimX = straightSide; break;
-    default:      wallZ = WALL_HEIGHT * 0.58; tof1 = 28; aimX = receiverSide;
-  }
-  const tx = COURT.width * aimX;
-  const vx = (tx - playerPos.x) / tof1;
-  const vy = (0 - playerPos.y) / tof1;
-  const vz = (wallZ - z0 + 0.5 * GRAVITY * tof1 * tof1) / tof1;
-  return sampleServePath(playerPos, z0, { x: vx, y: vy }, vz, 4);
+  const vel = practiceServeVelocity(state, strokeId, playerPos, PREVIEW_START_Z);
+  // Use the practice-only floor friction so the dashed guide line's bounce distance matches
+  // the preview ball (which also runs PRACTICE_FLOOR_FRICTION via previewPhysicsStep).
+  return sampleServePath(
+    playerPos, PREVIEW_START_Z, { x: vel.x, y: vel.y }, vel.vz, 4, PRACTICE_FLOOR_FRICTION,
+  );
 }
 
 /**
