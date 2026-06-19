@@ -161,6 +161,10 @@ export class PracticeRenderer {
   private wallImpacts: Array<{ x: number; y: number; r: number; age: number; color: string }> = [];
   private shake = 0;
   private ballTrail: Array<{ sx: number; sy: number; r: number; age: number }> = [];
+  // Wall-impact tracking so we can fire shake + flash whenever the ball hits ANY
+  // wall (previously practice mode only reacted to scoring, so wall hits felt dead).
+  private prevLastWall: string | null = null;
+  private prevHitFrontWall = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
@@ -216,10 +220,46 @@ export class PracticeRenderer {
     this.rafId = requestAnimationFrame(this.loop);
   };
 
+  /**
+   * Fire screen-shake + a colored flash whenever the ball strikes a wall. Front
+   * wall hits punch harder than side/back. Called once per frame before drawing.
+   */
+  private detectWallImpacts(s: GameState): void {
+    const sh = s.shuttle;
+    if (!sh.inPlay) {
+      this.prevLastWall = sh.lastWall ?? null;
+      this.prevHitFrontWall = sh.hitFrontWall;
+      return;
+    }
+    const t = depthT(sh.pos.y);
+    const px = screenX(sh.pos.x, t);
+    const py = screenY(sh.z, t);
+
+    // Front wall (strongest feedback): tin/out/valid coloring by strike height.
+    const frontHit = sh.hitFrontWall && !this.prevHitFrontWall;
+    if (frontHit) {
+      const color = sh.z < TIN_HEIGHT ? '#ff3030' : sh.z > FRONT_OUT_HEIGHT ? '#ffcc30' : '#40ddff';
+      this.wallImpacts.push({ x: px, y: py, r: 0, age: 0, color });
+      this.shake = Math.max(this.shake, 9);
+    }
+
+    // Side / back wall: lighter shake + neutral flash.
+    const wallChanged = sh.lastWall !== this.prevLastWall && sh.lastWall != null && sh.lastWall !== 'front';
+    if (wallChanged) {
+      this.wallImpacts.push({ x: px, y: py, r: 0, age: 0, color: '#7090c0' });
+      this.shake = Math.max(this.shake, 5);
+    }
+
+    this.prevLastWall = sh.lastWall ?? null;
+    this.prevHitFrontWall = sh.hitFrontWall;
+  }
+
   // ── Main draw ─────────────────────────────────────────────────────────────
   private draw(): void {
     const ctx = this.ctx;
     const s = this.runner.current;
+
+    this.detectWallImpacts(s);
 
     // Screen shake
     const sx = this.shake > 0 ? (Math.random() - 0.5) * this.shake * 2 : 0;

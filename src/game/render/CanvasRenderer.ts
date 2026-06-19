@@ -330,16 +330,22 @@ export class CanvasRenderer {
       const hitZ = s.shuttle.z;
       const impactKind: WallImpactFX['kind'] = hitZ < TIN_HEIGHT ? 'tin' : hitZ > FRONT_OUT_HEIGHT ? 'out' : 'valid';
       this.wallImpactFX.push({ x: s.shuttle.pos.x, z: s.shuttle.z, age: 0, life: 22, kind: impactKind });
-      this.shake = Math.max(this.shake, 6);
-      // Front wall ping sound
+      // Front wall is the headline impact — scale shake with ball speed so a
+      // hard drive hits noticeably harder than a soft drop.
       const spd = Math.hypot(s.shuttle.vel.x, s.shuttle.vel.y);
+      this.shake = Math.max(this.shake, 8 + Math.min(4, spd / 4));
+      // Front wall ping sound
       SoundEngine.get().frontWallHit(Math.min(1, spd / 18));
     }
     this.prevHitFrontWall = hitWall;
 
-    // Side / back wall bounce sound
+    // Side / back wall bounce: sound + a lighter screen-shake so a wall hit has
+    // real impact (previously side/back hits made noise but the screen stayed
+    // dead still — the feedback felt missing).
     if (s.shuttle.lastWall !== this.prevLastWall && s.shuttle.lastWall !== null && s.shuttle.lastWall !== 'front') {
       SoundEngine.get().sideWallHit();
+      const spd = Math.hypot(s.shuttle.vel.x, s.shuttle.vel.y);
+      this.shake = Math.max(this.shake, 3 + Math.min(3, spd / 6));
     }
     this.prevLastWall = s.shuttle.lastWall;
 
