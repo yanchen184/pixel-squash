@@ -959,9 +959,12 @@ export class PracticeRenderer {
           } else if (speed > 1.0) {
             crop = A.runRight;
           } else {
-            const phase = Math.sin(Date.now() * 0.0035);
-            crop = phase >= 0 ? A.idleA : A.idleB;
-            breathScale = 1 + phase * 0.015;
+            // Idle: stay on a SINGLE frame and breathe purely by a slow vertical
+            // scale. Swapping between idleA/idleB every half-cycle made the whole
+            // body snap-flip ~once a second (the "詭異抖動"); a smooth scale on one
+            // frame reads as breathing without any pose pop.
+            crop = A.idleA;
+            breathScale = 1 + Math.sin(Date.now() * 0.0022) * 0.012;
           }
         }
         // Keep the sprite cell's aspect ratio (418/314 ≈ 1.33) so the chibi isn't

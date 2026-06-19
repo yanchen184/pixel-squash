@@ -1387,10 +1387,11 @@ export class CanvasRenderer {
             // Predominantly forward/back movement → use the forward lunge stride.
             crop = A.runRight;
           } else {
-            // Idle: gentle breathing — alternate idleA/idleB and pulse height ±1.5%.
-            const phase = Math.sin(Date.now() * 0.0035);
-            crop = phase >= 0 ? A.idleA : A.idleB;
-            breathScale = 1 + phase * 0.015;
+            // Idle: stay on a SINGLE frame and breathe purely by a slow vertical
+            // scale. Swapping idleA/idleB every half-cycle snap-flipped the body
+            // ~once a second; one frame + smooth scale reads as breathing, no pop.
+            crop = A.idleA;
+            breathScale = 1 + Math.sin(Date.now() * 0.0022) * 0.012;
           }
         }
       } else {
