@@ -475,13 +475,16 @@ function applyFloorBounce(
 function previewPhysicsStep(s: ShuttleState, slowmo: number): ShuttleState {
   if (!s.inPlay) return s;
   const vz = s.vz - GRAVITY * slowmo;
-  // Integrate position with slowed displacement; bleed horizontal speed with the same air
-  // drag the live ball uses (per real tick, not per slowed sub-step, so total energy loss
-  // over the flight matches the rally — the preview is a faithful slow-mo, not a different sim).
+  // Bleed horizontal speed at the SAME per-real-tick rate as sampleServePath / the live rally.
+  // Drag is multiplicative, so applying SHUTTLE_DRAG once per slowed sub-step (≈ 1/slowmo
+  // sub-steps per real tick) would compound to SHUTTLE_DRAG^(1/slowmo) per tick — far more loss
+  // than the dashed guide line computes, making the ball curve short and drift off the dashes.
+  // Raise it to the slowmo power so 1/slowmo sub-steps multiply back to exactly SHUTTLE_DRAG.
+  const subDrag = Math.pow(SHUTTLE_DRAG, slowmo);
   const moved: ShuttleState = {
     ...s,
     pos: { x: s.pos.x + s.vel.x * slowmo, y: s.pos.y + s.vel.y * slowmo },
-    vel: { x: s.vel.x * SHUTTLE_DRAG, y: s.vel.y * SHUTTLE_DRAG },
+    vel: { x: s.vel.x * subDrag, y: s.vel.y * subDrag },
     z: s.z + vz * slowmo,
     vz,
     deadReason: null,
