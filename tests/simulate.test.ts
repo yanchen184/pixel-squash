@@ -183,6 +183,9 @@ describe('boast (side-wall → front-wall)', () => {
     // multi-wall arcs without falling through walls.
     // We use positional proximity (y ≈ COURT.depth or x ≈ 0/width) since lastWall resets
     // on each serve and would never accumulate across points.
+    // Back-region threshold is 0.45 — aligned with physics-audit's authoritative serve-carry
+    // bound (depth * 0.4). A no-input serve arcs to ~49% depth; the old 0.6 only passed by
+    // riding the floor-bounce skid, which FLOOR_FRICTION now (correctly) damps.
     let s = createInitialState();
     let nearBack = false;
     let hitFront = false;
@@ -191,7 +194,7 @@ describe('boast (side-wall → front-wall)', () => {
       const inp = s.awaitingServeChoice ? SERVE_LEFT : NO_INPUT;
       s = step(s, inp, NO_INPUT);
       if (s.shuttle.inPlay) {
-        if (s.shuttle.pos.y > COURT.depth * 0.6) nearBack = true;
+        if (s.shuttle.pos.y > COURT.depth * 0.45) nearBack = true;
         if (s.shuttle.hitFrontWall) hitFront = true;
       }
       if (nearBack && hitFront) break;
@@ -303,7 +306,8 @@ describe('multi-wall compound bounces', () => {
     for (let i = 0; i < 3000; i++) {
       const inp = s.awaitingServeChoice ? SERVE_LEFT : NO_INPUT;
       s = step(s, inp, NO_INPUT);
-      if (s.shuttle.inPlay && s.shuttle.pos.y > COURT.depth * 0.6) {
+      // 0.45: aligned with physics-audit serve-carry bound; see note in the boast test above.
+      if (s.shuttle.inPlay && s.shuttle.pos.y > COURT.depth * 0.45) {
         seenBackRegion = true;
         break;
       }
