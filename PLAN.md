@@ -475,14 +475,14 @@ type GameEvents = {
 | # | 驗收項 | 驗法 | 通過條件 | 狀態 |
 |---|---|---|---|---|
 | 1 | 連續揮拍十次 | A | 自動拋球發球→進 rally→連揮，`rallyHitCount` 累積到 ≥10 且每拍 `justHit` 有觸發、無卡死 | ✅（腳本 A 通過） |
-| 2 | 上下左右移動動畫順暢 | B | 按住 W/S/A/D，sprite 在 runLeft/runRight/前移/後移幀間切換、無跳格或定格 | ⬜（待瀏覽器截圖驗） |
-| 3 | 四種擊球動畫順暢且物理合理 | A+B | kill/drop/drive/boast 各揮一次：sprite 對應幀；球路前牆撞擊 z 與落點符合 strokes.ts profile（kill 低快、drop 近前牆、drive 中、boast 走側牆） | 🟡（A 物理已過；B/C 視覺/音效待截圖） |
+| 2 | 上下左右移動動畫順暢 | B | 按住 W/S/A/D，sprite 在 runLeft/runRight/前移/後移幀間切換、無跳格或定格 | ✅（瀏覽器 round-trip：patch vel.x=±3 → drawPlayer 選 runLeft(0,1)/runRight(3,0,flip)，兩截圖姿勢明顯不同；idle 落 idleA + breathScale） |
+| 3 | 四種擊球動畫順暢且物理合理 | A+B | kill/drop/drive/boast 各揮一次：sprite 對應幀；球路前牆撞擊 z 與落點符合 strokes.ts profile（kill 低快、drop 近前牆、drive 中、boast 走側牆） | ✅（A 物理已過；B 瀏覽器 round-trip：patch lastStroke=kill/drop/boast/drive + swingCooldown>0 → 四張截圖分別 swingKill(2,1) 過頂 / swingDrop(1,2) 大伸展 / swingBoast(0,2) 低側 / swingDrive(3,1) 側驅，四幀視覺不同；#8 音效已驗） |
 | 4 | 出界邏輯正確 | A | 故意過揮（早揮過界）→ `deadReason='out'`；正常球不誤判出界 | ✅（腳本 A 通過） |
 | 5 | 彈跳（牆/地板）合理 | A | 牆反彈速度保留率 ≈ `FRONT_WALL_BOUNCE/WALL_BOUNCE`±0.05；地板第一彈起、第二落地 `deadReason='double-bounce'` | ✅（腳本 A 通過） |
-| 6 | 發球規則完善 | A+C | M 拋球→升起→揮拍發出進 rally；發球員被限制在發球框內（短發球線 `SERVE_LINE_Y` 後、左/右框） | 🟡（A 物理已過；B/C 視覺/音效待截圖） |
-| 7 | 場地有場地圖片（真圖非程序線） | B | 截圖見 `court_bg_no_glass`（觀眾+霓虹牆+地板線）；`hasCourtArt` 時不疊程序 court line | ⬜（待瀏覽器截圖驗） |
+| 6 | 發球規則完善 | A+C | M 拋球→升起→揮拍發出進 rally；發球員被限制在發球框內（短發球線 `SERVE_LINE_Y` 後、左/右框） | ✅（A 物理已過；C 真鍵盤 round-trip：對 window 派真 KeyboardEvent 走 LocalInput 路徑 → await=true 按 A 選左框 → sub=toss/await=false → M → airborne → J 揮拍 → phase=rally rallyHits=1；「選發球框：A/← D/→」提示截圖可見） |
+| 7 | 場地有場地圖片（真圖非程序線） | B | 截圖見 `court_bg_no_glass`（觀眾+霓虹牆+地板線）；`hasCourtArt` 時不疊程序 court line | ✅（瀏覽器 round-trip：`assetsReady=true`，截圖明見觀眾席（霓虹點陣人群）+ 側牆霓虹透視框 + 地板梯形線 + service/tin 線） |
 | 8 | 打到牆壁後回饋感優質 | A+B+C | 前牆撞擊觸發 `HITSTOP_FRONT_WALL` 凍幀 + `shake` 抖動 + 顏色 flash + **音效**（已補：`PracticeRenderer` 接上 `SoundEngine`，前牆/側牆/落地/球拍/tin/out 全有聲）。練習 fault 同 tick reset 無 `point` phase，故新增 `state.lastFaultReason` 把死球原因帶過 reset 一格供 renderer 播 tin/out call | ✅（A 物理測試過；音效瀏覽器 round-trip 驗證 6 類全觸發：frontWallHit×2/sideWallHit×1/floorBounce×1/racketHit×2/tinHit/outCall；`tests/practice-fault-feedback.test.ts` 鎖 sim 合約） |
-| 9 | 球大小隨距離遠近透視縮放 | B | `ballRadius(depthT(y))` 近前牆小、近鏡頭大；截圖量近/遠球半徑比 | ⬜（待瀏覽器截圖驗） |
+| 9 | 球大小隨距離遠近透視縮放 | B | `ballRadius(depthT(y))` 近前牆小、近鏡頭大；截圖量近/遠球半徑比 | ✅（瀏覽器 round-trip：球 patch 到 y=4（前牆=近鏡頭）vs y=585（後牆=遠）兩截圖，前牆球明顯大、後牆球明顯小；公式 `ballRadius=22+(4-22)*t`、`t=y/COURT.depth` → 近 22px / 遠 4px、比 5.5×） |
 | 10 | 得分規則真的寫好 | A | tin/out/not-front-wall → 擊球者失分；double-bounce → 應接方失分；`deadReason` 與 `scorePoint` 歸屬一致 | ✅（腳本 A 通過） |
 
 ### 第二批（深思後補充，≥10 項，2026-06-20）
@@ -500,8 +500,8 @@ type GameEvents = {
 | 19 | drop/kill fault 閘正確 | A | 離前牆太遠按 drop → `max-front-dist` 降級；低球按 kill → `min-contact-z` 降級為 drive | ✅（腳本 A 通過） |
 | 20 | 練習模式不計分、無限對打 | A | 死球 → `resetForServe` 回發球、`scores` 不動、`winner` 恆 null，可一直打 | ✅（腳本 A 通過） |
 | 21 | 揮拍 timing 控前牆左右落點 | A | 早揮 → 前牆撞擊點偏左、晚揮偏右、準時置中（`aimXFromTiming`），落點 x 隨之變 | ✅（腳本 A 通過） |
-| 22 | 球拖尾 / 命中特效不殘留 | B | rally 結束/重置後 ballTrail、wallImpacts、cheer flash 清乾淨，不卡畫面 | ⬜（待瀏覽器截圖驗） |
-| 23 | 觀眾歡呼觸發 | A+B | 精彩對拍（每 10 拍）/魚躍救球 → cheer flash + 文字觸發 | ⬜（待瀏覽器截圖驗） |
+| 22 | 球拖尾 / 命中特效不殘留 | B | rally 結束/重置後 ballTrail、wallImpacts、cheer flash 清乾淨，不卡畫面 | ✅（瀏覽器 round-trip：先塞 persistentTrail=2/ballTrail=2/wallImpacts=1/cheerTimer=90/shake=8 → `restart()` 後全部歸 0/null，含 prevRallyHitCountCheer=0；serve→rally 也自動清 trail） |
+| 23 | 觀眾歡呼觸發 | A+B | 精彩對拍（每 10 拍）/魚躍救球 → cheer flash + 文字觸發 | ✅（瀏覽器 round-trip：rallyHitCount 跨 10 → cheerTimer=89 文字「精彩對拍！」；dive-save state（justHit+diveFrames>0）→ cheerTimer=79 文字「魚躍救球！」；commit 4b7c15b 接線、restart 清乾淨） |
 | 24 | 球永遠在四牆界內（不變量） | A | 連打數百 tick，`shuttle.pos` 恆在 `[0,width]×[0,depth]`、`z>=0`，無數值爆走/NaN | ✅（腳本 A 通過） |
 | 25 | 練習進場狀態正確 | A+C | 進練習模式 → `gameMode='practice'`、`phase='serve'`、`server=0`、提示「按 M 拋球」、seam 掛上 | ✅（腳本 A 通過） |
 
