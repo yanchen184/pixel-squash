@@ -162,6 +162,13 @@ export type GameState = {
   previewStep: number;
   /** Index into previewPath points array — ball animates through these each tick when > 0. */
   previewPathIdx: number;
+  /**
+   * Practice-mode rally freeze (TEST AID, default false). While true the live ball is held
+   * still — its predicted path + landing marker are drawn so the tester can walk the character
+   * to the landing spot before swinging. Toggled by the M (nextStop) edge during a rally. Has
+   * no effect outside practice mode, so the player's free-rally experience is unchanged.
+   */
+  rallyFrozen: boolean;
 };
 
 // ---- Logic-space constants (deterministic) ----
@@ -311,6 +318,7 @@ export function createInitialState(): GameState {
       previewStroke: null,
       previewStep: -1,
       previewPathIdx: -1,
+      rallyFrozen: false,
     },
     0,
   );
@@ -351,6 +359,7 @@ export function resetForServe(state: GameState, server: Side): GameState {
     previewPath: null,
     previewStroke: null,
     previewStep: -1,
+    rallyFrozen: false,
     phaseTimer: 45,
     p1: { ...state.p1, pos: { ...makePlayer(0).pos }, facing: 'up', diveFrames: 0, diveDir: { x: 0, y: 0 }, diveRecovery: 0 },
     p2: { ...state.p2, pos: { ...makePlayer(1).pos }, facing: 'up', diveFrames: 0, diveDir: { x: 0, y: 0 }, diveRecovery: 0 },

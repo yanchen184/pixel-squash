@@ -145,6 +145,39 @@ export function step(state: GameState, inA: InputFrame, inB: InputFrame): GameSt
     return launchServe({ ...state, frame });
   }
 
+  // ---- Practice rally freeze (TEST AID) ----
+  // M (nextStop edge) toggles a freeze on the LIVE ball so the tester can read the predicted
+  // landing marker and walk to it before swinging. Default OFF — outside practice this whole
+  // block is skipped and the player's free rally is untouched.
+  if (state.gameMode === 'practice') {
+    const toggled = inA.nextStop ? !state.rallyFrozen : state.rallyFrozen;
+    if (toggled) {
+      // Frozen: ball is held still (no flight, no walls, no death). Players may move freely and
+      // swing. predictLanding keeps the marker fresh against the held ball. A connecting swing
+      // relaunches the ball and lifts the freeze so normal physics resume next tick.
+      let fp1 = movePlayer(state.p1, inA, 0, state.shuttle, state);
+      let fp2 = movePlayer(state.p2, inB, 1, state.shuttle, state);
+      let fshuttle = state.shuttle;
+      let fhitstop = 0;
+      const fr1 = resolveSwing(fp1, inA, fshuttle, 0, fp2, state.rallyHitCount);
+      fp1 = fr1.player; fshuttle = fr1.shuttle; fhitstop = Math.max(fhitstop, fr1.hitstop);
+      const fr2 = resolveSwing(fp2, inB, fshuttle, 1, fp1, state.rallyHitCount);
+      fp2 = fr2.player; fshuttle = fr2.shuttle; fhitstop = Math.max(fhitstop, fr2.hitstop);
+      const hitThisTick = fr1.player.justHit || fr2.player.justHit;
+      fshuttle = predictLanding(fshuttle);
+      return {
+        ...state,
+        frame,
+        p1: fp1,
+        p2: fp2,
+        shuttle: fshuttle,
+        hitstop: fhitstop,
+        rallyHitCount: hitThisTick ? state.rallyHitCount + 1 : state.rallyHitCount,
+        rallyFrozen: !hitThisTick, // a connecting swing lifts the freeze
+      };
+    }
+  }
+
   // ---- Rally tick ----
   let p1 = movePlayer(state.p1, inA, 0, state.shuttle, state);
   let p2 = movePlayer(state.p2, inB, 1, state.shuttle, state);
@@ -188,7 +221,7 @@ export function step(state: GameState, inA: InputFrame, inB: InputFrame): GameSt
     return scorePoint({ ...state, frame, p1, p2, shuttle, hitstop: 0, rallyHitCount });
   }
 
-  return { ...state, frame, p1, p2, shuttle, hitstop, rallyHitCount };
+  return { ...state, frame, p1, p2, shuttle, hitstop, rallyHitCount, rallyFrozen: false };
 }
 
 function movePlayer(pl: PlayerState, input: InputFrame, side: Side, shuttle: ShuttleState, state?: GameState): PlayerState {
@@ -944,6 +977,7 @@ function launchPracticeRally(state: GameState, stroke: StrokeId, path: PathPoint
     previewStroke: stroke,
     previewStep: -1,
     previewPathIdx: -1,
+    rallyFrozen: false,     // start the rally live; M toggles the freeze test aid
     rallyHitCount: 1,       // the serve counts as the first hit of the rally
     p1,
     shuttle: {

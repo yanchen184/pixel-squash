@@ -495,7 +495,7 @@ type GameEvents = {
 | 14 | 魚躍救球（dive）可用且耗體力 | A | Shift 觸發 → `diveFrames>0` 沿 `diveDir` 滑、`stamina` 扣 `DIVE_STAMINA_COST`、結束進 `diveRecovery` 趴地鎖位 | ✅（腳本 A 通過） |
 | 15 | 體力系統（消耗/回復）合理 | A | 揮拍/魚躍扣體力、待機回 `STAMINA_REGEN`；體力 0 時移動速度減半（`speedFactor 0.5`） | ✅（腳本 A 通過） |
 | 16 | 落點預測 marker 準確 | A | `shuttle.landing` 預測點與球實際第一合法落地點誤差 < 一個身位（含牆反彈路徑） | ✅（腳本 A 通過） |
-| 17 | M 鍵分段預覽（教學）仍可用 | A+B | 發球進 preview 後按 M → 球逐段放行、撞牆/落地凍結等下一次 M；M 預覽不被新發球流程破壞 | ⛔（已被自由對打設計取代，見下節） |
+| 17 | M 鍵 rally 凍結（測試輔助）與自由對打共存 | A+B | rally 中按 M → 活球原地凍結、畫青色虛線+落點環讓測試者走到定位再揮拍；再按 M → 解凍、物理續跑；凍結中揮拍命中會自動解凍。預設 OFF（自由對打不受影響）；非 practice 模式 M 無效 | ✅（腳本 A 7 項通過 + 真機 round-trip：凍結 120 frame 0 漂移、解凍後球續飛、青虛線+落點環截圖確認） |
 | 18 | boast 反角 fault 閘正確 | A | 不在側牆邊按 boast → `need-angle` 閘擋下降級為 drive；貼側牆按 → 真的走側牆反角 | ✅（腳本 A 通過） |
 | 19 | drop/kill fault 閘正確 | A | 離前牆太遠按 drop → `max-front-dist` 降級；低球按 kill → `min-contact-z` 降級為 drive | ✅（腳本 A 通過） |
 | 20 | 練習模式不計分、無限對打 | A | 死球 → `resetForServe` 回發球、`scores` 不動、`winner` 恆 null，可一直打 | ✅（腳本 A 通過） |

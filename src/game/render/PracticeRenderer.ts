@@ -330,6 +330,7 @@ export class PracticeRenderer {
     this.drawBall(s);
     this.drawPreviewBall(s);
     this.drawFrozenBall(s);
+    this.drawRallyFreeze(s);
     this.drawWallImpacts();
     this.drawHud(s);
 
@@ -813,6 +814,55 @@ export class PracticeRenderer {
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.ellipse(lx, ly, mr, mr * 0.3, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  // ── Rally freeze (TEST AID) ──────────────────────────────────────────────
+  // While s.rallyFrozen the live ball is held still by the sim. Draw a bright dashed guide
+  // from the held ball to its predicted landing ring so the tester can walk the character to
+  // the spot, then swing. Distinct cyan styling marks it as a test aid, not normal play.
+  private drawRallyFreeze(s: GameState): void {
+    if (!s.rallyFrozen) return;
+    const ball = s.shuttle;
+    if (!ball.inPlay) return;
+    const ctx = this.ctx;
+
+    const t  = depthT(ball.pos.y);
+    const bx = screenX(ball.pos.x, t);
+    const by = screenY(ball.z, t);
+    const pulse = 0.6 + 0.4 * Math.sin(s.frame * 0.18);
+
+    // Halo around the held ball so it reads as "paused".
+    ctx.beginPath();
+    ctx.arc(bx, by, ballRadius(t) * 1.9, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(120,230,255,${0.5 * pulse})`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    if (ball.landing) {
+      const lt = depthT(ball.landing.y);
+      const lx = screenX(ball.landing.x, lt);
+      const ly = screenY(0, lt);
+
+      // Dashed guide from ball down to the landing spot.
+      ctx.save();
+      ctx.setLineDash([7, 5]);
+      ctx.strokeStyle = `rgba(120,230,255,${0.75 * pulse})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(lx, ly);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+
+      // Pulsing target ring — where to stand before swinging.
+      const mr = 12 * (1 - lt * 0.5);
+      ctx.strokeStyle = `rgba(120,230,255,${0.85 * pulse})`;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.ellipse(lx, ly, mr, mr * 0.35, 0, 0, Math.PI * 2);
       ctx.stroke();
     }
   }
