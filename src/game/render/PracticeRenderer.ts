@@ -490,9 +490,17 @@ export class FrontWallRenderer {
     ctx.save();
     ctx.translate(sx, sy);
 
-    this.drawBg();
-    this.drawSideWalls();
-    this.drawFloor(s);
+    if (this.hasCourtArt()) {
+      // Real court backdrop (audience + neon walls + floor) — the same front-wall
+      // perspective art the match renderer uses. Procedural wall/floor fills are
+      // skipped (the art already paints them); dynamic geometry (lines, players,
+      // ball, FX) still draws on top against our own projection.
+      this.drawCourtBaseArt();
+    } else {
+      this.drawBg();
+      this.drawSideWalls();
+      this.drawFloor(s);
+    }
     this.drawGlassBackWall(s);
     // Both players face the front wall (same side). In match draw the opponent too,
     // z-sorted so the one farther from camera (larger y) is drawn first / behind.
@@ -527,6 +535,36 @@ export class FrontWallRenderer {
   }
 
   // ── Background ────────────────────────────────────────────────────────────
+
+  /** True when the generated front-wall court art is loaded (use it as the backdrop). */
+  private hasCourtArt(): boolean {
+    return getImage('court_bg_no_glass') !== null;
+  }
+
+  /**
+   * Draw the generated court background (audience + neon side walls + floor lines)
+   * stretched to fill the frame, then mask out the baked-in scoreboard so the live
+   * HUD reads cleanly. Mirrors CanvasRenderer.drawCourtBaseArt so practice + match
+   * share one backdrop.
+   */
+  private drawCourtBaseArt(): void {
+    const img = getImage('court_bg_no_glass');
+    if (!img) return;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalAlpha = 1.0;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.drawImage(img, 0, 0, GAME_WIDTH, GAME_HEIGHT);
+    ctx.restore();
+    // Cover the scoreboard baked into the art (the live score comes from the HUD).
+    // Image is 600×400; the scoreboard sits centred near the top, so scale the mask
+    // to our 1280×720 frame.
+    ctx.save();
+    ctx.fillStyle = 'rgba(6,8,16,0.97)';
+    ctx.fillRect(GAME_WIDTH * 0.40, GAME_HEIGHT * 0.05, GAME_WIDTH * 0.20, GAME_HEIGHT * 0.10);
+    ctx.restore();
+  }
+
   private drawBg(): void {
     const ctx = this.ctx;
     // Deep dark gradient top-to-bottom
