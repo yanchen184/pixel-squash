@@ -1284,23 +1284,49 @@ export class FrontWallRenderer {
         let breathScale = 1;
         let runBobY = 0;
         let runSquash = 1;
+        // Procedural swing follow-through / whiff recovery. Driven by cooldown
+        // progress (0 = just swung, 1 = fully recovered) so the body eases back to
+        // a settled pose instead of snapping from the static swing crop to idle.
+        let swingDx = 0;       // horizontal over-shoot of the swing arc
+        let swingRot = 0;      // slight body rotation through the follow-through
+        let swingScaleY = 1;   // vertical squash/stretch of the recoil
         if (p.diveFrames > 0) {
           crop = A.dive;
         } else if (p.swingCooldown > 0) {
-          switch (p.lastStroke) {
-            case 'kill':
-            case 'lob':
-              crop = A.swingKill;
-              break;
-            case 'drop':
-              crop = A.swingDrop;
-              break;
-            case 'boast':
-              crop = A.swingBoast;
-              break;
-            default:
-              crop = A.swingDrive;
-              break;
+          const t = 1 - p.swingCooldown / SWING_COOLDOWN_FRAMES; // 0→1 over the recovery
+          // Ease-out overshoot: a quick peak early, decaying back to rest. sin(πt)
+          // gives 0 at both ends with a single hump; (1−t) biases the hump early so
+          // the big motion is right after contact and it settles toward the end.
+          const recoil = Math.sin(Math.PI * t) * (1 - t * 0.5);
+          if (p.lastQuality === 'miss') {
+            // WHIFF: swung and caught only air. Use the off-balance low side-swing
+            // pose and exaggerate the recovery — the body over-rotates past the
+            // swing and staggers back, reading clearly as "missed".
+            crop = A.swingBoast;
+            swingDx = recoil * (spriteW * 0.5);   // lurch sideways through the empty swing
+            swingRot = recoil * 0.22;             // over-rotate ~12°
+            swingScaleY = 1 - recoil * 0.08;      // crouch/dip as they stumble
+          } else {
+            // HIT: normal stroke pose with a tighter, controlled follow-through that
+            // settles back to balance.
+            switch (p.lastStroke) {
+              case 'kill':
+              case 'lob':
+                crop = A.swingKill;
+                break;
+              case 'drop':
+                crop = A.swingDrop;
+                break;
+              case 'boast':
+                crop = A.swingBoast;
+                break;
+              default:
+                crop = A.swingDrive;
+                break;
+            }
+            swingDx = recoil * (spriteW * 0.22);  // modest arc carry-through
+            swingRot = recoil * 0.10;             // ~6° follow-through lean
+            swingScaleY = 1 + recoil * 0.04;      // slight stretch on extension
           }
         } else {
           const vx = p.vel.x;
@@ -1336,18 +1362,27 @@ export class FrontWallRenderer {
         }
         // Keep the sprite cell's aspect ratio (418/314 ≈ 1.33) so the chibi isn't
         // squashed, anchoring bottom-center at the floor point.
-        const sh = spriteH * breathScale * runSquash;
+        const sh = spriteH * breathScale * runSquash * swingScaleY;
         const sw = sh * (crop.sw / crop.sh);
         ctx.save();
+        // Swing follow-through / whiff recovery: rotate the body slightly around the
+        // floor anchor and carry it through the swing arc, then it eases back as the
+        // procedural recoil decays to 0 (see swingDx/swingRot/swingScaleY above).
+        if (swingRot !== 0) {
+          ctx.translate(px, py);
+          ctx.rotate(swingRot * (p.facing === 'left' ? 1 : -1));
+          ctx.translate(-px, -py);
+        }
         if (flipX) {
           ctx.translate(px, 0);
           ctx.scale(-1, 1);
           ctx.translate(-px, 0);
         }
+        const swingShift = swingDx * (p.facing === 'left' ? -1 : 1);
         ctx.drawImage(
           actions,
           crop.sx, crop.sy, crop.sw, crop.sh,
-          px - sw / 2, py - sh + runBobY, sw, sh,
+          px - sw / 2 + swingShift, py - sh + runBobY, sw, sh,
         );
         ctx.restore();
         return;

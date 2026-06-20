@@ -1093,8 +1093,23 @@ function stepPracticeServe(state: GameState, inA: InputFrame): GameState {
         const path = computePreviewPath(state.p1.pos, inA.stroke, state);
         return launchPracticeRally(state, inA.stroke, path);
       }
-      // Swung but the ball was too far — the swing still commits (cooldown) but
-      // the ball keeps drifting; if it lands they lose the point.
+      // WHIFF: swung but the ball was out of reach. The swing still commits — set
+      // the cooldown + a 'miss' quality (and crucially NOT justHit) so the renderer
+      // can play the dedicated whiff animation. The ball keeps drifting; if it lands
+      // they lose the point.
+      if (state.p1.swingCooldown <= 0) {
+        const whiffed: PlayerState = {
+          ...state.p1,
+          swingCooldown: SWING_COOLDOWN_FRAMES,
+          facing: 'up',
+          lastStroke: inA.stroke,
+          lastQuality: 'miss',
+          justHit: false,
+        };
+        const drifting = { ...sh, z: nz, vz: nvz };
+        const p1s = movePlayer(whiffed, inA, 0, drifting, state);
+        return { ...state, shuttle: drifting, p1: p1s };
+      }
     }
 
     // Ball landed without a successful hit → missed serve → lose the point.
