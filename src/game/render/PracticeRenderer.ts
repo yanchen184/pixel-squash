@@ -454,20 +454,29 @@ export class FrontWallRenderer {
     if (this.persistentTrail.length > 600) this.persistentTrail.shift();
   }
 
-  /** Draw the persistent rally trail as a faint connected ribbon under the live ball. */
+  /** Draw the persistent rally trail as a clear glowing ribbon tracing the whole flight path. */
   private drawPersistentTrail(): void {
     if (this.persistentTrail.length < 2) return;
     const ctx = this.ctx;
+    const path = () => {
+      ctx.beginPath();
+      ctx.moveTo(this.persistentTrail[0].sx, this.persistentTrail[0].sy);
+      for (let i = 1; i < this.persistentTrail.length; i++) {
+        ctx.lineTo(this.persistentTrail[i].sx, this.persistentTrail[i].sy);
+      }
+    };
     ctx.save();
-    ctx.strokeStyle = 'rgba(255,170,60,0.22)';
-    ctx.lineWidth = 2;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(this.persistentTrail[0].sx, this.persistentTrail[0].sy);
-    for (let i = 1; i < this.persistentTrail.length; i++) {
-      ctx.lineTo(this.persistentTrail[i].sx, this.persistentTrail[i].sy);
-    }
+    // Outer glow pass — soft wide amber halo so the whole route reads at a glance.
+    ctx.strokeStyle = 'rgba(255,150,40,0.35)';
+    ctx.lineWidth = 7;
+    path();
+    ctx.stroke();
+    // Core line — bright, crisp, fully traces the flight path.
+    ctx.strokeStyle = 'rgba(255,210,120,0.95)';
+    ctx.lineWidth = 2.5;
+    path();
     ctx.stroke();
     ctx.restore();
   }
@@ -490,18 +499,22 @@ export class FrontWallRenderer {
     ctx.save();
     ctx.translate(sx, sy);
 
-    if (this.hasCourtArt()) {
+    const courtArt = this.hasCourtArt();
+    if (courtArt) {
       // Real court backdrop (audience + neon walls + floor) — the same front-wall
-      // perspective art the match renderer uses. Procedural wall/floor fills are
-      // skipped (the art already paints them); dynamic geometry (lines, players,
-      // ball, FX) still draws on top against our own projection.
+      // perspective art the match renderer uses. Procedural wall/floor fills AND
+      // the procedural court lines (drawGlassBackWall / drawFrontWallLines) are
+      // skipped: the art already paints them, and our own projection's lines sit
+      // at a different perspective, so drawing both produces double-line ghosting
+      // ("圖與現場元素疊不起來"). With the art present we keep ONE set of lines
+      // (the image's) and only overlay dynamic gameplay geometry below.
       this.drawCourtBaseArt();
     } else {
       this.drawBg();
       this.drawSideWalls();
       this.drawFloor(s);
+      this.drawGlassBackWall(s);
     }
-    this.drawGlassBackWall(s);
     // Both players face the front wall (same side). In match draw the opponent too,
     // z-sorted so the one farther from camera (larger y) is drawn first / behind.
     if (this.gameMode === 'match') {
@@ -511,7 +524,7 @@ export class FrontWallRenderer {
     } else {
       this.drawPlayer(s.p1);
     }
-    this.drawFrontWallLines();
+    if (!courtArt) this.drawFrontWallLines();
     this.drawPreviewPath(s);
     this.drawPersistentTrail();
     this.drawBallTrail();
@@ -926,19 +939,36 @@ export class FrontWallRenderer {
     ctx.fill();
     ctx.shadowBlur = 0;
 
-    // Landing marker on floor
+    // Landing marker on floor — concentric rings (同心圓) so the predicted
+    // landing spot reads clearly. Outer rings fade; inner ring is brightest.
     if (ball.landing) {
       const lt = depthT(ball.landing.y);
       const lx = screenX(ball.landing.x, lt);
       const ly = screenY(0, lt);
-      const mr = 8 * (1 - lt * 0.6);
+      const baseR = 16 * (1 - lt * 0.6);
       const eta = Math.max(0, ball.landingEta);
-      const alpha = 0.3 + 0.5 * (1 - Math.min(eta, 60) / 60);
-      ctx.strokeStyle = `rgba(255,180,48,${alpha})`;
-      ctx.lineWidth = 1.5;
+      // Closer to landing → brighter / more urgent.
+      const urgency = 1 - Math.min(eta, 60) / 60;
+      const flatten = 0.32; // floor perspective squash
+      ctx.save();
+      const rings = [
+        { r: baseR, a: 0.25 + 0.35 * urgency, w: 1.5 },
+        { r: baseR * 0.62, a: 0.4 + 0.4 * urgency, w: 1.75 },
+        { r: baseR * 0.3, a: 0.55 + 0.45 * urgency, w: 2 },
+      ];
+      for (const ring of rings) {
+        ctx.strokeStyle = `rgba(255,190,70,${ring.a})`;
+        ctx.lineWidth = ring.w;
+        ctx.beginPath();
+        ctx.ellipse(lx, ly, ring.r, ring.r * flatten, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      // Bright centre dot.
+      ctx.fillStyle = `rgba(255,225,150,${0.6 + 0.4 * urgency})`;
       ctx.beginPath();
-      ctx.ellipse(lx, ly, mr, mr * 0.3, 0, 0, Math.PI * 2);
-      ctx.stroke();
+      ctx.ellipse(lx, ly, 2.5, 2.5 * flatten, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
     }
   }
 
@@ -1088,7 +1118,11 @@ export class FrontWallRenderer {
 
   // ── Preview path (practice serve) ────────────────────────────────────────
   private drawPreviewPath(s: GameState): void {
-    if (!s.previewPath || s.serveSubPhase !== 'preview') return;
+    // Draw the full predicted route both while arming the serve ('preview') AND
+    // during the live practice rally — the user wants "整條路線" (the whole route to
+    // the landing) visible the moment the ball is struck, not just the trail behind it.
+    const showInRally = s.gameMode === 'practice' && s.phase === 'rally' && !!s.previewPath;
+    if (!s.previewPath || (s.serveSubPhase !== 'preview' && !showInRally)) return;
     const ctx = this.ctx;
     const pts = s.previewPath;
     if (pts.length < 2) return;
@@ -1248,6 +1282,8 @@ export class FrontWallRenderer {
         let crop;
         let flipX = false;
         let breathScale = 1;
+        let runBobY = 0;
+        let runSquash = 1;
         if (p.diveFrames > 0) {
           crop = A.dive;
         } else if (p.swingCooldown > 0) {
@@ -1286,10 +1322,21 @@ export class FrontWallRenderer {
             crop = A.idleA;
             breathScale = 1 + Math.sin(Date.now() * 0.0022) * 0.012;
           }
+          if (speed > 1.0) {
+            // Vertical step-bob while running. The v2 sheet has only ONE run pose per
+            // direction, so holding it static made movement read as a fixed-pose SLIDE
+            // ("移動沒有連貫動作"). Synthesise a stride: bob the body up/down and squash
+            // slightly, phased by DISTANCE TRAVELLED (p.pos), not wall-clock — so the
+            // cycle advances exactly as the player moves and freezes when they stop.
+            const stridePhase = (gameX + gameY) * (Math.PI / 14);
+            // |sin| → a hop on each footfall; squash dips as the foot plants.
+            runBobY = -Math.abs(Math.sin(stridePhase)) * (spriteH * 0.06);
+            runSquash = 1 - Math.abs(Math.cos(stridePhase)) * 0.04;
+          }
         }
         // Keep the sprite cell's aspect ratio (418/314 ≈ 1.33) so the chibi isn't
         // squashed, anchoring bottom-center at the floor point.
-        const sh = spriteH * breathScale;
+        const sh = spriteH * breathScale * runSquash;
         const sw = sh * (crop.sw / crop.sh);
         ctx.save();
         if (flipX) {
@@ -1300,7 +1347,7 @@ export class FrontWallRenderer {
         ctx.drawImage(
           actions,
           crop.sx, crop.sy, crop.sw, crop.sh,
-          px - sw / 2, py - sh, sw, sh,
+          px - sw / 2, py - sh + runBobY, sw, sh,
         );
         ctx.restore();
         return;
