@@ -474,36 +474,36 @@ type GameEvents = {
 
 | # | 驗收項 | 驗法 | 通過條件 | 狀態 |
 |---|---|---|---|---|
-| 1 | 連續揮拍十次 | A | 自動拋球發球→進 rally→連揮，`rallyHitCount` 累積到 ≥10 且每拍 `justHit` 有觸發、無卡死 | ⬜ |
-| 2 | 上下左右移動動畫順暢 | B | 按住 W/S/A/D，sprite 在 runLeft/runRight/前移/後移幀間切換、無跳格或定格 | ⬜ |
-| 3 | 四種擊球動畫順暢且物理合理 | A+B | kill/drop/drive/boast 各揮一次：sprite 對應幀；球路前牆撞擊 z 與落點符合 strokes.ts profile（kill 低快、drop 近前牆、drive 中、boast 走側牆） | ⬜ |
-| 4 | 出界邏輯正確 | A | 故意過揮（早揮過界）→ `deadReason='out'`；正常球不誤判出界 | ⬜ |
-| 5 | 彈跳（牆/地板）合理 | A | 牆反彈速度保留率 ≈ `FRONT_WALL_BOUNCE/WALL_BOUNCE`±0.05；地板第一彈起、第二落地 `deadReason='double-bounce'` | ⬜ |
-| 6 | 發球規則完善 | A+C | M 拋球→升起→揮拍發出進 rally；發球員被限制在發球框內（短發球線 `SERVE_LINE_Y` 後、左/右框） | ⬜ |
-| 7 | 場地有場地圖片（真圖非程序線） | B | 截圖見 `court_bg_no_glass`（觀眾+霓虹牆+地板線）；`hasCourtArt` 時不疊程序 court line | ⬜ |
-| 8 | 打到牆壁後回饋感優質 | A+B+C | 前牆撞擊觸發 `HITSTOP_FRONT_WALL` 凍幀 + `shake` 抖動 + 顏色 flash；**音效**（目前缺，需補） | ⬜ |
-| 9 | 球大小隨距離遠近透視縮放 | B | `ballRadius(depthT(y))` 近前牆小、近鏡頭大；截圖量近/遠球半徑比 | ⬜ |
-| 10 | 得分規則真的寫好 | A | tin/out/not-front-wall → 擊球者失分；double-bounce → 應接方失分；`deadReason` 與 `scorePoint` 歸屬一致 | ⬜ |
+| 1 | 連續揮拍十次 | A | 自動拋球發球→進 rally→連揮，`rallyHitCount` 累積到 ≥10 且每拍 `justHit` 有觸發、無卡死 | ✅（腳本 A 通過） |
+| 2 | 上下左右移動動畫順暢 | B | 按住 W/S/A/D，sprite 在 runLeft/runRight/前移/後移幀間切換、無跳格或定格 | ⬜（待瀏覽器截圖驗） |
+| 3 | 四種擊球動畫順暢且物理合理 | A+B | kill/drop/drive/boast 各揮一次：sprite 對應幀；球路前牆撞擊 z 與落點符合 strokes.ts profile（kill 低快、drop 近前牆、drive 中、boast 走側牆） | 🟡（A 物理已過；B/C 視覺/音效待截圖） |
+| 4 | 出界邏輯正確 | A | 故意過揮（早揮過界）→ `deadReason='out'`；正常球不誤判出界 | ✅（腳本 A 通過） |
+| 5 | 彈跳（牆/地板）合理 | A | 牆反彈速度保留率 ≈ `FRONT_WALL_BOUNCE/WALL_BOUNCE`±0.05；地板第一彈起、第二落地 `deadReason='double-bounce'` | ✅（腳本 A 通過） |
+| 6 | 發球規則完善 | A+C | M 拋球→升起→揮拍發出進 rally；發球員被限制在發球框內（短發球線 `SERVE_LINE_Y` 後、左/右框） | 🟡（A 物理已過；B/C 視覺/音效待截圖） |
+| 7 | 場地有場地圖片（真圖非程序線） | B | 截圖見 `court_bg_no_glass`（觀眾+霓虹牆+地板線）；`hasCourtArt` 時不疊程序 court line | ⬜（待瀏覽器截圖驗） |
+| 8 | 打到牆壁後回饋感優質 | A+B+C | 前牆撞擊觸發 `HITSTOP_FRONT_WALL` 凍幀 + `shake` 抖動 + 顏色 flash；**音效**（目前缺，需補） | 🟡（A 物理已過；B/C 視覺/音效待截圖） |
+| 9 | 球大小隨距離遠近透視縮放 | B | `ballRadius(depthT(y))` 近前牆小、近鏡頭大；截圖量近/遠球半徑比 | ⬜（待瀏覽器截圖驗） |
+| 10 | 得分規則真的寫好 | A | tin/out/not-front-wall → 擊球者失分；double-bounce → 應接方失分；`deadReason` 與 `scorePoint` 歸屬一致 | ✅（腳本 A 通過） |
 
 ### 第二批（深思後補充，≥10 項，2026-06-20）
 
 | # | 驗收項 | 驗法 | 通過條件 | 狀態 |
 |---|---|---|---|---|
-| 11 | 揮拍 timing 分級正確 | A | 同球不同時機揮 → `lastQuality` 落在 perfect/good/early/late，`|dt|` 對應 `TIMING_PERFECT/GOOD/WINDOW` 邊界 | ⬜ |
-| 12 | 揮拍冷卻不可連點作弊 | A | 連續每 tick 按揮拍 → 只在 `swingCooldown==0` 命中一次，冷卻期內按無效 | ⬜ |
-| 13 | 移動邊界 clamp（不穿牆出場） | A | 持續往任一方向移動 → `p1.pos` 夾在 `[PLAYER_MARGIN, COURT.width-MARGIN]`×`[…, depth-…]`，不越界 | ⬜ |
-| 14 | 魚躍救球（dive）可用且耗體力 | A | Shift 觸發 → `diveFrames>0` 沿 `diveDir` 滑、`stamina` 扣 `DIVE_STAMINA_COST`、結束進 `diveRecovery` 趴地鎖位 | ⬜ |
-| 15 | 體力系統（消耗/回復）合理 | A | 揮拍/魚躍扣體力、待機回 `STAMINA_REGEN`；體力 0 時移動速度減半（`speedFactor 0.5`） | ⬜ |
-| 16 | 落點預測 marker 準確 | A | `shuttle.landing` 預測點與球實際第一合法落地點誤差 < 一個身位（含牆反彈路徑） | ⬜ |
-| 17 | M 鍵分段預覽（教學）仍可用 | A+B | 發球進 preview 後按 M → 球逐段放行、撞牆/落地凍結等下一次 M；M 預覽不被新發球流程破壞 | ⬜ |
-| 18 | boast 反角 fault 閘正確 | A | 不在側牆邊按 boast → `need-angle` 閘擋下降級為 drive；貼側牆按 → 真的走側牆反角 | ⬜ |
-| 19 | drop/kill fault 閘正確 | A | 離前牆太遠按 drop → `max-front-dist` 降級；低球按 kill → `min-contact-z` 降級為 drive | ⬜ |
-| 20 | 練習模式不計分、無限對打 | A | 死球 → `resetForServe` 回發球、`scores` 不動、`winner` 恆 null，可一直打 | ⬜ |
-| 21 | 揮拍 timing 控前牆左右落點 | A | 早揮 → 前牆撞擊點偏左、晚揮偏右、準時置中（`aimXFromTiming`），落點 x 隨之變 | ⬜ |
-| 22 | 球拖尾 / 命中特效不殘留 | B | rally 結束/重置後 ballTrail、wallImpacts、cheer flash 清乾淨，不卡畫面 | ⬜ |
-| 23 | 觀眾歡呼觸發 | A+B | 精彩對拍（每 10 拍）/魚躍救球 → cheer flash + 文字觸發 | ⬜ |
-| 24 | 球永遠在四牆界內（不變量） | A | 連打數百 tick，`shuttle.pos` 恆在 `[0,width]×[0,depth]`、`z>=0`，無數值爆走/NaN | ⬜ |
-| 25 | 練習進場狀態正確 | A+C | 進練習模式 → `gameMode='practice'`、`phase='serve'`、`server=0`、提示「按 M 拋球」、seam 掛上 | ⬜ |
+| 11 | 揮拍 timing 分級正確 | A | 同球不同時機揮 → `lastQuality` 落在 perfect/good/early/late，`|dt|` 對應 `TIMING_PERFECT/GOOD/WINDOW` 邊界 | ✅（腳本 A 通過） |
+| 12 | 揮拍冷卻不可連點作弊 | A | 連續每 tick 按揮拍 → 只在 `swingCooldown==0` 命中一次，冷卻期內按無效 | ✅（腳本 A 通過） |
+| 13 | 移動邊界 clamp（不穿牆出場） | A | 持續往任一方向移動 → `p1.pos` 夾在 `[PLAYER_MARGIN, COURT.width-MARGIN]`×`[…, depth-…]`，不越界 | ✅（腳本 A 通過） |
+| 14 | 魚躍救球（dive）可用且耗體力 | A | Shift 觸發 → `diveFrames>0` 沿 `diveDir` 滑、`stamina` 扣 `DIVE_STAMINA_COST`、結束進 `diveRecovery` 趴地鎖位 | ✅（腳本 A 通過） |
+| 15 | 體力系統（消耗/回復）合理 | A | 揮拍/魚躍扣體力、待機回 `STAMINA_REGEN`；體力 0 時移動速度減半（`speedFactor 0.5`） | ✅（腳本 A 通過） |
+| 16 | 落點預測 marker 準確 | A | `shuttle.landing` 預測點與球實際第一合法落地點誤差 < 一個身位（含牆反彈路徑） | ✅（腳本 A 通過） |
+| 17 | M 鍵分段預覽（教學）仍可用 | A+B | 發球進 preview 後按 M → 球逐段放行、撞牆/落地凍結等下一次 M；M 預覽不被新發球流程破壞 | ⛔（已被自由對打設計取代，見下節） |
+| 18 | boast 反角 fault 閘正確 | A | 不在側牆邊按 boast → `need-angle` 閘擋下降級為 drive；貼側牆按 → 真的走側牆反角 | ✅（腳本 A 通過） |
+| 19 | drop/kill fault 閘正確 | A | 離前牆太遠按 drop → `max-front-dist` 降級；低球按 kill → `min-contact-z` 降級為 drive | ✅（腳本 A 通過） |
+| 20 | 練習模式不計分、無限對打 | A | 死球 → `resetForServe` 回發球、`scores` 不動、`winner` 恆 null，可一直打 | ✅（腳本 A 通過） |
+| 21 | 揮拍 timing 控前牆左右落點 | A | 早揮 → 前牆撞擊點偏左、晚揮偏右、準時置中（`aimXFromTiming`），落點 x 隨之變 | ✅（腳本 A 通過） |
+| 22 | 球拖尾 / 命中特效不殘留 | B | rally 結束/重置後 ballTrail、wallImpacts、cheer flash 清乾淨，不卡畫面 | ⬜（待瀏覽器截圖驗） |
+| 23 | 觀眾歡呼觸發 | A+B | 精彩對拍（每 10 拍）/魚躍救球 → cheer flash + 文字觸發 | ⬜（待瀏覽器截圖驗） |
+| 24 | 球永遠在四牆界內（不變量） | A | 連打數百 tick，`shuttle.pos` 恆在 `[0,width]×[0,depth]`、`z>=0`，無數值爆走/NaN | ✅（腳本 A 通過） |
+| 25 | 練習進場狀態正確 | A+C | 進練習模式 → `gameMode='practice'`、`phase='serve'`、`server=0`、提示「按 M 拋球」、seam 掛上 | ✅（腳本 A 通過） |
 
 ### 設計變更：練習模式 = 軌跡留存 + 自由對打（Bob 拍板 2026-06-20）
 
