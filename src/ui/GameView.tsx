@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { CanvasRenderer, GAME_WIDTH, GAME_HEIGHT } from '@/game/render/CanvasRenderer';
-import { PracticeRenderer } from '@/game/render/PracticeRenderer';
+import { GAME_WIDTH, GAME_HEIGHT } from '@/game/render/CanvasRenderer';
+import { FrontWallRenderer } from '@/game/render/PracticeRenderer';
 import type { Difficulty } from '@/game/input/AIInput';
 import type { GameMode } from '@/data/gameState';
 import { SoundEngine } from '@/game/audio/SoundEngine';
@@ -23,17 +23,21 @@ export function GameView({ config, onExit }: { config: MatchConfig; onExit: () =
 
   useEffect(() => {
     if (!canvasRef.current) return;
-    const isPractice = config.gameMode === 'practice';
-    const renderer = isPractice
-      ? new PracticeRenderer(canvasRef.current)
-      : new CanvasRenderer(canvasRef.current, config);
+    // Both modes share the front-wall (perspective) view — the selling point is
+    // real squash with both players on the SAME side facing the screen wall.
+    // gameMode drives whether the renderer draws the AI opponent + bridges the
+    // sim's score/winner to the DOM HUD (match) or runs the endless serve-rally
+    // practice loop.
+    const renderer = new FrontWallRenderer(canvasRef.current, {
+      gameMode: config.gameMode ?? 'match',
+      difficulty: config.difficulty,
+    });
     rendererRef.current = renderer;
     renderer.start();
     if (import.meta.env.DEV) {
       (window as unknown as { __renderer: typeof renderer }).__renderer = renderer;
-      // E2E seam: match renderer exposes a sim debug API (read state / swap AI /
-      // reset) under a stable handle. Practice mode has no such hook (smoke test
-      // verifies it via canvas pixels + DOM instead).
+      // E2E seam: the front-wall renderer exposes a sim debug API (read state /
+      // swap AI / reset) under a stable handle, for BOTH practice and match.
       const debug = (renderer as { debug?: () => unknown }).debug?.();
       if (debug) (window as unknown as { __squash: unknown }).__squash = debug;
       // E2E seam: expose the SoundEngine singleton so a round-trip can spy that

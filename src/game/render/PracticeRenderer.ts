@@ -33,11 +33,12 @@ import {
   type GameState,
   type PlayerState,
   type DeadReason,
+  type GameMode,
 } from '@/data/gameState';
 import { SimRunner } from '@/game/sim/SimRunner';
 import { type PathPoint } from '@/game/sim/simulate';
 import { LocalInput } from '@/game/input/LocalInput';
-import { AIInput } from '@/game/input/AIInput';
+import { AIInput, type Difficulty } from '@/game/input/AIInput';
 import { eventBus } from '@/game/eventBus';
 import { SoundEngine } from '@/game/audio/SoundEngine';
 import { loadAssets, getImage, PLAYER_BACKVIEW_CROPS, PLAYER_ACTIONS_V2_CROPS, OPPONENT_CROPS } from '@/assets/assetLoader';
@@ -153,13 +154,29 @@ const COL = {
   neon2:       '#00c8ff',
 };
 
-export class PracticeRenderer {
+export type FrontWallConfig = { gameMode: GameMode; difficulty: Difficulty };
+
+/**
+ * The front-wall (screen-wall) renderer — the selling-point view where both players
+ * stand on the same side facing the front wall, like real squash. Drives BOTH practice
+ * and match: practice rallies freely with no scoring; match emits score/winner events to
+ * the DOM HUD and respects the sim's real point phase. Mode + AI difficulty are injected,
+ * not hard-coded.
+ */
+export class FrontWallRenderer {
   private ctx: CanvasRenderingContext2D;
   private runner: SimRunner;
   private localInput: LocalInput;
+  private gameMode: GameMode;
   private rafId = 0;
   private lastTs = 0;
   private assetsReady = false;
+
+  // HUD bridge (match mode): mirror CanvasRenderer so the DOM scoreboard/winner modal
+  // reacts. Practice never scores, so these stay inert there.
+  private lastScores: [number, number] = [0, 0];
+  private lastWinner: 0 | 1 | null = null;
+  private lastAwaitingServe = false;
 
   // FX
   private wallImpacts: Array<{ x: number; y: number; r: number; age: number; color: string }> = [];
@@ -185,12 +202,13 @@ export class PracticeRenderer {
   private cheerText: { text: string; color: string; age: number; life: number } | null = null;
   private prevRallyHitCountCheer = 0;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, config: FrontWallConfig = { gameMode: 'practice', difficulty: 'easy' }) {
     this.ctx = canvas.getContext('2d')!;
+    this.gameMode = config.gameMode;
     this.localInput = new LocalInput();
-    const ai = new AIInput('easy', 1, 0xaabbccdd);
+    const ai = new AIInput(config.difficulty, 1, 0xaabbccdd);
     this.runner = new SimRunner(this.localInput, ai);
-    this.runner.setGameMode('practice');
+    this.runner.setGameMode(config.gameMode);
     this.runner.reset();
     loadAssets().then(() => { this.assetsReady = true; }).catch(() => {});
     this.bindEvents();
@@ -220,11 +238,45 @@ export class PracticeRenderer {
     this.cheerTimer = 0;
     this.cheerText = null;
     this.prevRallyHitCountCheer = 0;
+    if (this.gameMode === 'match') {
+      this.lastScores = [0, 0];
+      this.lastWinner = null;
+      this.lastAwaitingServe = false;
+      eventBus.emit('sim:reset', undefined);
+    }
   }
 
-  /** DEV-only debug seam (mirrors CanvasRenderer.debug) — read/arm practice sim state. */
+  /**
+   * Match HUD bridge: emit score/stamina/winner/serve-choice events the DOM HUD listens
+   * to (mirrors CanvasRenderer.syncHud). Scores are NOT drawn on the canvas — the React
+   * Hud overlay owns the scoreboard and winner modal. Practice never calls this.
+   */
+  private syncHud(s: GameState): void {
+    if (s.scores[0] !== this.lastScores[0] || s.scores[1] !== this.lastScores[1]) {
+      this.lastScores = [s.scores[0], s.scores[1]];
+      eventBus.emit('score:changed', { scores: [s.scores[0], s.scores[1]] });
+    }
+    eventBus.emit('stamina:changed', { p1: s.p1.stamina, p2: s.p2.stamina });
+    if (s.winner !== null && s.winner !== this.lastWinner) {
+      this.lastWinner = s.winner;
+      SoundEngine.get().matchWon(s.winner as 0 | 1);
+      eventBus.emit('match:over', { winner: s.winner as 0 | 1, scores: [s.scores[0], s.scores[1]] });
+    }
+    const awaiting = s.awaitingServeChoice && s.server === 0;
+    if (awaiting !== this.lastAwaitingServe) {
+      this.lastAwaitingServe = awaiting;
+      eventBus.emit('serve:awaiting', { waiting: awaiting });
+    }
+  }
+
+  /**
+   * DEV/E2E seam (mirrors the old CanvasRenderer.debug). Bundles the sim's debug
+   * API with the AIInput class so a headless/E2E driver can swap player A for an
+   * AI and drive a full self-playing match (incl. forcing the serve-box choice the
+   * AI never emits). Works for BOTH practice and match.
+   */
   debug() {
-    return this.runner.debugApi();
+    return { ...this.runner.debugApi(), AIInput };
   }
 
   private bindEvents(): void {
@@ -429,6 +481,7 @@ export class PracticeRenderer {
     this.detectSounds(s);
     this.detectCheer(s);
     this.updatePersistentTrail(s);
+    if (this.gameMode === 'match') this.syncHud(s);
 
     // Screen shake
     const sx = this.shake > 0 ? (Math.random() - 0.5) * this.shake * 2 : 0;
@@ -441,7 +494,15 @@ export class PracticeRenderer {
     this.drawSideWalls();
     this.drawFloor(s);
     this.drawGlassBackWall(s);
-    this.drawPlayer(s.p1);
+    // Both players face the front wall (same side). In match draw the opponent too,
+    // z-sorted so the one farther from camera (larger y) is drawn first / behind.
+    if (this.gameMode === 'match') {
+      const ordered = s.p1.pos.y >= s.p2.pos.y ? [s.p2, s.p1] : [s.p1, s.p2];
+      this.drawPlayer(ordered[0]);
+      this.drawPlayer(ordered[1]);
+    } else {
+      this.drawPlayer(s.p1);
+    }
     this.drawFrontWallLines();
     this.drawPreviewPath(s);
     this.drawPersistentTrail();
@@ -1285,7 +1346,7 @@ export class PracticeRenderer {
     ctx.font = 'bold 16px monospace';
     ctx.fillStyle = 'rgba(80,200,120,0.8)';
     ctx.textAlign = 'right';
-    ctx.fillText('練習模式', GAME_WIDTH - 12, 28);
+    ctx.fillText(this.gameMode === 'match' ? '對戰模式' : '練習模式', GAME_WIDTH - 12, 28);
 
     // Rally hit count
     if (s.rallyHitCount > 0) {
@@ -1376,3 +1437,10 @@ export class PracticeRenderer {
     ctx.textAlign = 'left';
   }
 }
+
+/**
+ * Back-compat alias. The class was renamed PracticeRenderer → FrontWallRenderer
+ * when it became the shared front-wall view for BOTH practice and match modes.
+ * Existing imports of `PracticeRenderer` keep resolving to the same class.
+ */
+export const PracticeRenderer = FrontWallRenderer;
