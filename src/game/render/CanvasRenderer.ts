@@ -194,6 +194,8 @@ export class CanvasRenderer {
   private refAnnouncements: RefAnnounce[] = [];
   private wallImpactFX: WallImpactFX[] = [];
   private shake = 0;
+  /** Latest sim tick (s.frame), captured each draw so sprite animation can phase off it. */
+  private frameNo = 0;
   private prevJustHit = { p1: false, p2: false };
   private prevHitFrontWall = false;
   private ghostTimer = 0;
@@ -522,6 +524,7 @@ export class CanvasRenderer {
   // ---- Drawing ----
   private draw(s: GameState): void {
     const ctx = this.ctx;
+    this.frameNo = s.frame;
     ctx.save();
     if (this.shake > 0) {
       const a = s.frame * 1.3;
@@ -657,15 +660,17 @@ export class CanvasRenderer {
       this.fillQuad(lft2, lbt2, rbt2, rft2, 'rgba(12,21,32,0.45)');
     }
 
-    // Side-wall out lines always drawn (they define the playable boundary).
-    this.setGlowLine(
-      withAlpha(COL.outLine, 0.98),
-      withAlpha(COL.outLineGlow, 0.75),
-      5, 16,
-    );
-    this.strokeSideWallLine('left', FRONT_OUT_HEIGHT);
-    this.strokeSideWallLine('right', FRONT_OUT_HEIGHT);
-    this.clearGlow();
+    if (!this.hasCourtArt()) {
+      // Side-wall out lines (playable boundary) — baked art already has the walls.
+      this.setGlowLine(
+        withAlpha(COL.outLine, 0.98),
+        withAlpha(COL.outLineGlow, 0.75),
+        5, 16,
+      );
+      this.strokeSideWallLine('left', FRONT_OUT_HEIGHT);
+      this.strokeSideWallLine('right', FRONT_OUT_HEIGHT);
+      this.clearGlow();
+    }
   }
 
   /**
@@ -715,14 +720,16 @@ export class CanvasRenderer {
       ctx.restore();
     }
 
-    // Back-wall out line — amber boundary at FRONT_OUT_HEIGHT (sits on the glass).
-    this.setGlowLine(
-      withAlpha(COL.outLine, 0.92),
-      withAlpha(COL.outLineGlow, 0.6),
-      4, 12,
-    );
-    this.strokeBackWallLine(FRONT_OUT_HEIGHT);
-    this.clearGlow();
+    if (!this.hasCourtArt()) {
+      // Back-wall out line — only as gameplay reference when no baked art.
+      this.setGlowLine(
+        withAlpha(COL.outLine, 0.92),
+        withAlpha(COL.outLineGlow, 0.6),
+        4, 12,
+      );
+      this.strokeBackWallLine(FRONT_OUT_HEIGHT);
+      this.clearGlow();
+    }
   }
 
   /** Court floor as a perspective quad with gradient depth and marked service boxes. */
@@ -763,7 +770,13 @@ export class CanvasRenderer {
       );
     }
 
-    // Glow effect under the short service line — always shown
+    // When baked court art is present it already contains all floor lines (painted
+    // in the correct artist perspective). Drawing our own procedural glow lines on
+    // top doubles every line in a slightly different projection — the splayed, broken
+    // look. So skip the whole line pass entirely and trust the baked image.
+    if (this.hasCourtArt()) return;
+
+    // Glow effect under the short service line
     const slA = this.pt(0, SERVE_LINE_Y);
     const slB = this.pt(width, SERVE_LINE_Y);
     ctx.save();
@@ -777,7 +790,7 @@ export class CanvasRenderer {
     ctx.stroke();
     ctx.restore();
 
-    // Court boundary lines — always drawn (gameplay reference)
+    // Court boundary lines (gameplay reference when no art)
     this.setGlowLine(COL.line, COL.lineGlow, 3, 8);
     this.strokePoly([tl, tr, br, bl, tl]);
     this.clearGlow();
@@ -847,12 +860,12 @@ export class CanvasRenderer {
       this.clearGlow();
     }
 
-    // Out line (top boundary) — always drawn as gameplay reference
-    this.setGlowLine(COL.outLine, COL.outLineGlow, 6, 18);
-    this.strokeWallLine(FRONT_OUT_HEIGHT);
-    this.clearGlow();
-
     if (!this.hasCourtArt()) {
+      // Out line (top boundary) — only as gameplay reference when no baked art
+      this.setGlowLine(COL.outLine, COL.outLineGlow, 6, 18);
+      this.strokeWallLine(FRONT_OUT_HEIGHT);
+      this.clearGlow();
+
       this.fillQuad(
         this.pt(0, 0, FRONT_OUT_HEIGHT), this.pt(COURT.width, 0, FRONT_OUT_HEIGHT),
         this.pt(COURT.width, 0, WALL_HEIGHT), this.pt(0, 0, WALL_HEIGHT),
@@ -1342,6 +1355,10 @@ export class CanvasRenderer {
     // Horizontal flip + breathing scale, applied at draw time for p1's v2 sheet.
     let flipX = false;
     let breathScale = 1;
+    // Procedural motion synthesis (Option A): the sheet only has ONE static frame per
+    // pose, so to read as "running" / "swinging" we add time-driven offsets on top of
+    // the chosen crop. anim.* are applied at the final drawImage.
+    const anim = { bobY: 0, swayX: 0, leanRot: 0, squash: 1 };
 
     if (isP1) {
       // Prefer the v2 action sheet for p1 (player faces front wall, back to camera).
@@ -1352,46 +1369,86 @@ export class CanvasRenderer {
         if (diving) {
           crop = A.dive;
         } else if (swinging) {
-          // Pick swing pose by the last stroke played.
+          // --- Swing animation: a 3-phase wind-up → strike → follow-through ---------
+          // swingCooldown counts DOWN from SWING_COOLDOWN_FRAMES to 0, so progress p
+          // goes 0→1 across the swing. We crossfade pose + add an anticipation crouch
+          // and a forward punch so the swing has weight instead of a frozen pose.
+          const p = 1 - pl.swingCooldown / SWING_COOLDOWN_FRAMES; // 0=start .. 1=end
+          const windup = p < 0.32;   // coiling back
+          const strike = p >= 0.32 && p < 0.55; // explosive contact
+          // Pick the committed-stroke pose for the strike/follow phases.
+          let strikePose: Crop;
           switch (pl.lastStroke) {
             case 'kill':
             case 'lob': // lob reuses the overhead kill pose
-              crop = A.swingKill;
-              break;
+              strikePose = A.swingKill; break;
             case 'drop':
-              crop = A.swingDrop;
-              break;
+              strikePose = A.swingDrop; break;
             case 'boast':
-              crop = A.swingBoast;
-              break;
+              strikePose = A.swingBoast; break;
             case 'drive':
             case 'serve':
             default:
-              crop = A.swingDrive;
-              break;
+              strikePose = A.swingDrive; break;
+          }
+          if (windup) {
+            // Anticipation: hold the low ready crouch and dip down/back a touch.
+            crop = A.readyLow;
+            anim.bobY = 3 * scale;          // sink into the floor
+            anim.squash = 0.97;             // compress vertically
+            anim.leanRot = -0.06;           // coil back
+          } else {
+            crop = strikePose;
+            if (strike) {
+              // Contact: snap up & forward, slight stretch — the "pop".
+              anim.bobY = -5 * scale;
+              anim.squash = 1.05;
+              anim.leanRot = 0.05;
+            } else {
+              // Follow-through: settle back to neutral over the remaining frames.
+              const t = (p - 0.55) / 0.45; // 0..1 in follow phase
+              anim.bobY = -5 * scale * (1 - t);
+              anim.squash = 1 + 0.05 * (1 - t);
+              anim.leanRot = 0.05 * (1 - t);
+            }
           }
         } else {
           const vx = pl.vel.x;
           const vy = pl.vel.y;
           const speed = Math.hypot(vx, vy);
           const horizontal = Math.abs(vx) > Math.abs(vy);
-          if (speed > 1.0 && horizontal && vx < -1) {
-            // Moving left.
-            crop = A.runLeft;
-          } else if (speed > 1.0 && horizontal && vx > 1) {
-            // Moving right — mirror the runRight (a left-derived stride) for clear
-            // left/right distinction.
-            crop = A.runRight;
-            flipX = true;
-          } else if (speed > 1.0) {
-            // Predominantly forward/back movement → use the forward lunge stride.
-            crop = A.runRight;
+          const moving = speed > 1.0;
+          if (moving) {
+            // --- Run cycle: alternate two stride frames + a vertical foot-lift bob so
+            // the legs read as actually stepping. Phase is driven by the sim frame
+            // counter scaled by speed (faster = quicker cadence). The |sin| bob lifts
+            // the body on each step; the alternating crop swaps the lead leg. -----
+            const cadence = 0.22 + Math.min(speed, 9) * 0.03; // rad per tick
+            const phase = this.frameNo * cadence;
+            const lift = Math.abs(Math.sin(phase));           // 0..1 foot-lift
+            anim.bobY = -lift * 5 * scale;                    // up on each step
+            anim.squash = 1 + lift * 0.03;                    // slight stretch at apex
+            anim.swayX = Math.cos(phase) * 2 * scale;         // weight shift L/R
+            const stepB = Math.sin(phase) >= 0;               // which leg leads
+            if (horizontal && vx < -1) {
+              crop = stepB ? A.runLeft : A.idleB; // left stride alternated w/ recover
+              anim.leanRot = -0.05;               // lean into travel direction
+            } else if (horizontal && vx > 1) {
+              crop = stepB ? A.runRight : A.idleB;
+              flipX = true;
+              anim.leanRot = 0.05;
+            } else {
+              // Forward / back: alternate the lunge stride with the upright frame so
+              // depth movement also has a visible step instead of a frozen slide.
+              crop = stepB ? A.runRight : A.ready;
+              anim.leanRot = vy < 0 ? 0.03 : -0.03;
+            }
           } else {
             // Idle: stay on a SINGLE frame and breathe purely by a slow vertical
             // scale. Swapping idleA/idleB every half-cycle snap-flipped the body
             // ~once a second; one frame + smooth scale reads as breathing, no pop.
             crop = A.idleA;
-            breathScale = 1 + Math.sin(Date.now() * 0.0022) * 0.012;
+            breathScale = 1 + Math.sin(this.frameNo * 0.11) * 0.012;
           }
         }
       } else {
@@ -1428,9 +1485,24 @@ export class CanvasRenderer {
         crop = OPPONENT_CROPS.dive;
       } else if (swinging) {
         crop = OPPONENT_CROPS.swing;
+        const p = 1 - pl.swingCooldown / SWING_COOLDOWN_FRAMES;
+        anim.bobY = -4 * scale * Math.sin(Math.min(p, 1) * Math.PI); // single bob pop
+        anim.squash = 1 + 0.04 * Math.sin(Math.min(p, 1) * Math.PI);
       } else {
         const speed = Math.hypot(pl.vel.x, pl.vel.y);
-        crop = speed > 1.0 ? OPPONENT_CROPS.run : OPPONENT_CROPS.ready;
+        if (speed > 1.0) {
+          crop = OPPONENT_CROPS.run;
+          const cadence = 0.22 + Math.min(speed, 9) * 0.03;
+          const phase = this.frameNo * cadence;
+          const lift = Math.abs(Math.sin(phase));
+          anim.bobY = -lift * 4 * scale;
+          anim.squash = 1 + lift * 0.03;
+          anim.swayX = Math.cos(phase) * 2 * scale;
+          anim.leanRot = pl.vel.x < 0 ? -0.04 : pl.vel.x > 0 ? 0.04 : 0;
+        } else {
+          crop = OPPONENT_CROPS.ready;
+          breathScale = 1 + Math.sin(this.frameNo * 0.1) * 0.01;
+        }
       }
     }
 
@@ -1443,6 +1515,17 @@ export class CanvasRenderer {
 
     const ctx = this.ctx;
     ctx.save();
+
+    // Procedural motion synthesis: pivot about the foot so the bob/lean/squash read as
+    // body movement while the feet stay planted. Skipped while diving (dive has its own
+    // lean below). leanRot tilts into the travel/swing direction; squash stretches the
+    // body vertically at a step apex or swing contact.
+    if (anim.leanRot !== 0 || anim.squash !== 1) {
+      ctx.translate(foot.x, foot.y);
+      if (anim.leanRot !== 0) ctx.rotate(anim.leanRot);
+      if (anim.squash !== 1) ctx.scale(1, anim.squash);
+      ctx.translate(-foot.x, -foot.y);
+    }
 
     // Lean sprite when diving
     if ((pl.diveFrames > 0 || pl.diveRecovery > 0)) {
@@ -1478,12 +1561,13 @@ export class CanvasRenderer {
     }
 
     // Main sprite: bottom-center anchored at foot position (drawn in flipped Y space,
-    // so foot.y - spriteH in flipped coords = head above foot visually).
+    // so foot.y - spriteH in flipped coords = head above foot visually). anim.bobY /
+    // anim.swayX offset the body for the run/swing motion (foot stays put visually).
     ctx.drawImage(
       img,
       crop.sx, crop.sy, crop.sw, crop.sh,
-      foot.x - spriteW / 2,
-      foot.y - spriteH,
+      foot.x - spriteW / 2 + anim.swayX,
+      foot.y - spriteH + anim.bobY,
       spriteW, spriteH,
     );
 
