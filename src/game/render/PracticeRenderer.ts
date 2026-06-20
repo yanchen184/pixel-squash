@@ -179,6 +179,11 @@ export class PracticeRenderer {
   private prevBouncesSinceWall = 0;
   private prevJustHit: { p1: boolean; p2: boolean } = { p1: false, p2: false };
   private prevFaultReason: DeadReason | null = null;
+  // Audience cheer (mirrors CanvasRenderer): a top-of-screen flash + label fired on
+  // every 10th rally hit and on a dive save, so the crowd reacts to good play.
+  private cheerTimer = 0;
+  private cheerText: { text: string; color: string; age: number; life: number } | null = null;
+  private prevRallyHitCountCheer = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
@@ -212,6 +217,9 @@ export class PracticeRenderer {
     this.ballTrail = [];
     this.persistentTrail = [];
     this.shake = 0;
+    this.cheerTimer = 0;
+    this.cheerText = null;
+    this.prevRallyHitCountCheer = 0;
   }
 
   /** DEV-only debug seam (mirrors CanvasRenderer.debug) — read/arm practice sim state. */
@@ -311,6 +319,67 @@ export class PracticeRenderer {
   }
 
   /**
+   * Audience-cheer triggers (practice has no scoring, so only the skill cues fire):
+   * every 10th hit of a sustained rally, and a dive save. Mirrors CanvasRenderer so
+   * the crowd reacts to good play in practice too.
+   */
+  private detectCheer(s: GameState): void {
+    const threshold = Math.floor(s.rallyHitCount / 10) * 10;
+    if (s.rallyHitCount >= 10 && threshold > this.prevRallyHitCountCheer) {
+      this.prevRallyHitCountCheer = threshold;
+      this.triggerCheer(90, '精彩對拍！', '#80e8c0');
+    }
+    if (s.phase === 'serve') this.prevRallyHitCountCheer = 0;
+
+    const diveSave = (s.p1.justHit && s.p1.diveFrames > 0) || (s.p2.justHit && s.p2.diveFrames > 0);
+    if (diveSave) this.triggerCheer(80, '魚躍救球！', '#60c8ff');
+
+    if (this.cheerTimer > 0) this.cheerTimer--;
+    if (this.cheerText) {
+      this.cheerText.age++;
+      if (this.cheerText.age >= this.cheerText.life) this.cheerText = null;
+    }
+  }
+
+  private triggerCheer(frames: number, text: string, color: string): void {
+    this.cheerTimer = Math.max(this.cheerTimer, frames);
+    if (!this.cheerText || this.cheerText.age > this.cheerText.life * 0.5) {
+      this.cheerText = { text, color, age: 0, life: frames };
+    }
+  }
+
+  /** Top-of-screen audience flash + cheer label (drawn over the crowd area). */
+  private drawCheerFlash(): void {
+    if (this.cheerTimer <= 0) return;
+    const ctx = this.ctx;
+    const alpha = Math.min(1, this.cheerTimer / 30) * 0.35;
+    const grad = ctx.createLinearGradient(0, 0, 0, GAME_HEIGHT * 0.45);
+    grad.addColorStop(0, `rgba(255,240,140,${alpha})`);
+    grad.addColorStop(0.5, `rgba(255,200,80,${alpha * 0.5})`);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.save();
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT * 0.45);
+    ctx.restore();
+
+    if (this.cheerText) {
+      const { text, color, age, life } = this.cheerText;
+      const t = age / life;
+      const textAlpha = t < 0.15 ? t / 0.15 : t > 0.65 ? 1 - (t - 0.65) / 0.35 : 1;
+      ctx.save();
+      ctx.globalAlpha = textAlpha * 0.9;
+      ctx.font = 'bold 24px "Segoe UI", system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 16;
+      ctx.fillStyle = color;
+      ctx.fillText(text, GAME_WIDTH / 2, GAME_HEIGHT * 0.14);
+      ctx.restore();
+    }
+  }
+
+  /**
    * Accumulate the live ball's screen position into the persistent rally trail
    * (Bob: 「軌跡一直留著」). The trail is wiped the moment a NEW rally launches
    * (serve → rally transition) so each rally starts on a clean court; during the
@@ -358,6 +427,7 @@ export class PracticeRenderer {
 
     this.detectWallImpacts(s);
     this.detectSounds(s);
+    this.detectCheer(s);
     this.updatePersistentTrail(s);
 
     // Screen shake
@@ -381,6 +451,7 @@ export class PracticeRenderer {
     this.drawFrozenBall(s);
     this.drawRallyFreeze(s);
     this.drawWallImpacts();
+    this.drawCheerFlash();
     this.drawHud(s);
 
     ctx.restore();
