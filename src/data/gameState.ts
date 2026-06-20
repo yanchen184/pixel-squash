@@ -288,6 +288,14 @@ export const PLAYER_MARGIN = 30;
 /** The "T" — the central spot players return to between shots. */
 export const T_SPOT: Vec2 = { x: COURT.width / 2, y: COURT.depth * 0.5 };
 
+/**
+ * Body radius for player-vs-player separation. Two bodies can't occupy the same
+ * spot — when their centres come within 2×this, the sim pushes them apart. Squash
+ * shares the whole floor, so without this the two AIs (both chasing the same ball
+ * landing + recovering to the same T) visually fuse into one blob. ~half a player width.
+ */
+export const PLAYER_BODY_RADIUS = 26;
+
 export function createInitialState(): GameState {
   const base = resetForServe(
     {

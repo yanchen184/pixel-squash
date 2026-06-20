@@ -40,6 +40,7 @@ import {
   MOMENTUM_MAX,
   PLAYER_SPEED,
   PLAYER_MARGIN,
+  PLAYER_BODY_RADIUS,
   DIVE_FRAMES,
   DIVE_SPEED,
   DIVE_REACH_BONUS,
@@ -181,6 +182,10 @@ export function step(state: GameState, inA: InputFrame, inB: InputFrame): GameSt
   // ---- Rally tick ----
   let p1 = movePlayer(state.p1, inA, 0, state.shuttle, state);
   let p2 = movePlayer(state.p2, inB, 1, state.shuttle, state);
+  // Bodies can't overlap. Both AIs chase the same ball + recover to the same T, so
+  // without this they fuse into one blob. Push them symmetrically apart along the
+  // axis between their centres until they're a body-width clear.
+  [p1, p2] = separatePlayers(p1, p2);
 
   let shuttle = stepBall(state.shuttle);
 
@@ -228,6 +233,26 @@ export function step(state: GameState, inA: InputFrame, inB: InputFrame): GameSt
   }
 
   return { ...state, frame, p1, p2, shuttle, hitstop, rallyHitCount, rallyFrozen: false };
+}
+
+/**
+ * Resolve player-vs-player overlap. If the two centres are within 2×PLAYER_BODY_RADIUS,
+ * push each out by half the penetration along the separating axis, then clamp back inside
+ * the legal floor. Pure: returns new player objects (or the originals when already clear).
+ * Degenerate case (exactly coincident) nudges them apart along x so the result is stable.
+ */
+function separatePlayers(a: PlayerState, b: PlayerState): [PlayerState, PlayerState] {
+  const minDist = PLAYER_BODY_RADIUS * 2;
+  let dx = b.pos.x - a.pos.x;
+  let dy = b.pos.y - a.pos.y;
+  let d = Math.sqrt(dx * dx + dy * dy);
+  if (d >= minDist) return [a, b];
+  if (d < 1e-3) { dx = 1; dy = 0; d = 1; } // coincident → split along x deterministically
+  const push = (minDist - d) / 2;
+  const ux = dx / d, uy = dy / d;
+  const na = { ...a, pos: { x: clampX(a.pos.x - ux * push), y: clampY(a.pos.y - uy * push) } };
+  const nb = { ...b, pos: { x: clampX(b.pos.x + ux * push), y: clampY(b.pos.y + uy * push) } };
+  return [na, nb];
 }
 
 function movePlayer(pl: PlayerState, input: InputFrame, side: Side, shuttle: ShuttleState, state?: GameState): PlayerState {

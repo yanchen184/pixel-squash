@@ -21,15 +21,17 @@ export class SimRunner {
   }
 
   /**
-   * DEV/E2E-only seam. Lets a headless test read sim state, overwrite the player
-   * (side A) input source — e.g. swap in an AI to drive a full self-playing match —
-   * and force a fresh state. Kept here (the sim's owner) so E2E never reaches into
-   * private renderer fields. Guard the call site behind `import.meta.env.DEV`.
+   * DEV/E2E-only seam. Lets a headless test read sim state, overwrite either player's
+   * input source (setInputA / setInputB) — e.g. swap an AI onto BOTH sides to drive a
+   * full self-playing hard-vs-hard match — and force a fresh state. Kept here (the sim's
+   * owner) so E2E never reaches into private renderer fields. Guard the call site behind
+   * `import.meta.env.DEV`.
    */
   debugApi() {
     return {
       state: (): GameState => this.state,
       setInputA: (src: InputSource): void => { this.inputA = src; },
+      setInputB: (src: InputSource): void => { this.inputB = src; },
       reset: (): void => this.reset(),
       // Shallow-merge a patch into the live state (immutable replace). Used by E2E
       // to arm a deterministic scenario (e.g. an out-of-reach incoming ball) between
