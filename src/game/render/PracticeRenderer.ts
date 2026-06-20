@@ -163,6 +163,11 @@ export class PracticeRenderer {
   private wallImpacts: Array<{ x: number; y: number; r: number; age: number; color: string }> = [];
   private shake = 0;
   private ballTrail: Array<{ sx: number; sy: number; r: number; age: number }> = [];
+  // Persistent rally trail (Bob: 「軌跡一直留著」): unlike ballTrail (which fades in 12
+  // frames), this accumulates the WHOLE rally's flight path and only clears when a new
+  // rally starts, so the player can read where every shot went.
+  private persistentTrail: Array<{ sx: number; sy: number }> = [];
+  private prevRallyPhase: string = 'serve';
   // Wall-impact tracking so we can fire shake + flash whenever the ball hits ANY
   // wall (previously practice mode only reacted to scoring, so wall hits felt dead).
   private prevLastWall: string | null = null;
@@ -194,6 +199,7 @@ export class PracticeRenderer {
     this.runner.reset();
     this.wallImpacts = [];
     this.ballTrail = [];
+    this.persistentTrail = [];
     this.shake = 0;
   }
 
@@ -256,12 +262,54 @@ export class PracticeRenderer {
     this.prevHitFrontWall = sh.hitFrontWall;
   }
 
+  /**
+   * Accumulate the live ball's screen position into the persistent rally trail
+   * (Bob: 「軌跡一直留著」). The trail is wiped the moment a NEW rally launches
+   * (serve → rally transition) so each rally starts on a clean court; during the
+   * rally every flight position is kept so the player can read the whole exchange.
+   */
+  private updatePersistentTrail(s: GameState): void {
+    const phase = s.phase;
+    // A fresh rally just launched → clear last rally's trail.
+    if (phase === 'rally' && this.prevRallyPhase !== 'rally') {
+      this.persistentTrail = [];
+    }
+    this.prevRallyPhase = phase;
+
+    if (phase !== 'rally' || !s.shuttle.inPlay) return;
+    const t = depthT(s.shuttle.pos.y);
+    const sx = screenX(s.shuttle.pos.x, t);
+    const sy = screenY(s.shuttle.z, t);
+    // Sample every frame; cap the buffer so a marathon rally can't grow unbounded.
+    this.persistentTrail.push({ sx, sy });
+    if (this.persistentTrail.length > 600) this.persistentTrail.shift();
+  }
+
+  /** Draw the persistent rally trail as a faint connected ribbon under the live ball. */
+  private drawPersistentTrail(): void {
+    if (this.persistentTrail.length < 2) return;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,170,60,0.22)';
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(this.persistentTrail[0].sx, this.persistentTrail[0].sy);
+    for (let i = 1; i < this.persistentTrail.length; i++) {
+      ctx.lineTo(this.persistentTrail[i].sx, this.persistentTrail[i].sy);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
   // ── Main draw ─────────────────────────────────────────────────────────────
   private draw(): void {
     const ctx = this.ctx;
     const s = this.runner.current;
 
     this.detectWallImpacts(s);
+    this.updatePersistentTrail(s);
 
     // Screen shake
     const sx = this.shake > 0 ? (Math.random() - 0.5) * this.shake * 2 : 0;
@@ -277,6 +325,7 @@ export class PracticeRenderer {
     this.drawPlayer(s.p1);
     this.drawFrontWallLines();
     this.drawPreviewPath(s);
+    this.drawPersistentTrail();
     this.drawBallTrail();
     this.drawBall(s);
     this.drawPreviewBall(s);

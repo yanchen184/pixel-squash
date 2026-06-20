@@ -449,6 +449,80 @@ type GameEvents = {
 
 ---
 
+## 8.6 練習模式交付驗收標準（Bob 指定，2026-06-20）
+
+> **這份清單是練習模式「寫好」的定義 — 交付時逐項驗收 ✅/❌，不以「程式邏輯看起來對」代替執行（遵 CLAUDE.md 驗收紀律）。**
+> 順序：**先把練習模式整份全綠，才動「跟電腦對戰」重寫。** match 任務全部擱置到此清單全綠後。
+
+### 驗收方法論（三種驗法，每項標明用哪種）
+
+練習模式 dev build 暴露兩個 seam（`import.meta.env.DEV` 下掛在 window）：
+- `window.__renderer` → `PracticeRenderer` 實例，含 `.runner`（SimRunner）、`.localInput`（LocalInput，`.held` 是按下鍵的 Set）、`.draw()`、`.ballRadius`/`.shake` 等繪製狀態。
+- `window.__squash` → `{ state(), setInputA(), reset(), patch() }`，讀/改 sim 狀態。
+
+| 驗法代號 | 手段 | 適用 |
+|---|---|---|
+| **A 腳本物理** | page context 跑 JS：`__squash.reset()` → 操控 `localInput.held` 注入按鍵 → 手動 pump `runner.update(1000/60)` 逐 tick → 讀 `state()` 斷言數值 | 物理 / 規則 / 死球 / 計數類（可給 pass/fail 數字） |
+| **B 截圖逐幀** | gif_creator 或連續 `computer screenshot`，每 N tick 截一張，肉眼比對動畫流暢與透視 | 動畫順暢 / 透視縮放 / 場地圖 / 視覺回饋 |
+| **C 實機 round-trip** | 真人鍵盤路徑（不繞 InputSource）：實際按 W/A/S/D/J/K/L/U/M，看畫面端真的反應 | 交付最終把關，證明不是只在腳本層成立 |
+
+> ⚠️ **M 是 press-EDGE**（`nextStop = held && !heldLast`）。腳本注入要「held.add('KeyM') → 一 tick → held.delete」才算一次按壓，連按要中間放開。
+> ⚠️ **靜態自動化分頁 rAF 被 Chrome throttle**，sim 不自走 → 腳本必須手動 `runner.update(1000/60)` 驅動，並在每幀後呼叫 `__renderer.draw(state)` 才看得到畫面。
+> ⚠️ **發球流程**：`serve(awaitingServeChoice)` → 自動 `toss` → M 拋球 → `airborne`（慢動作）→ 球近身按揮拍鍵 → `preview` → M 逐段放球 / 揮拍鍵直接打 → `rally`。
+
+### 第一批（Bob 列的 10 項，原始需求）
+
+| # | 驗收項 | 驗法 | 通過條件 | 狀態 |
+|---|---|---|---|---|
+| 1 | 連續揮拍十次 | A | 自動拋球發球→進 rally→連揮，`rallyHitCount` 累積到 ≥10 且每拍 `justHit` 有觸發、無卡死 | ⬜ |
+| 2 | 上下左右移動動畫順暢 | B | 按住 W/S/A/D，sprite 在 runLeft/runRight/前移/後移幀間切換、無跳格或定格 | ⬜ |
+| 3 | 四種擊球動畫順暢且物理合理 | A+B | kill/drop/drive/boast 各揮一次：sprite 對應幀；球路前牆撞擊 z 與落點符合 strokes.ts profile（kill 低快、drop 近前牆、drive 中、boast 走側牆） | ⬜ |
+| 4 | 出界邏輯正確 | A | 故意過揮（早揮過界）→ `deadReason='out'`；正常球不誤判出界 | ⬜ |
+| 5 | 彈跳（牆/地板）合理 | A | 牆反彈速度保留率 ≈ `FRONT_WALL_BOUNCE/WALL_BOUNCE`±0.05；地板第一彈起、第二落地 `deadReason='double-bounce'` | ⬜ |
+| 6 | 發球規則完善 | A+C | M 拋球→升起→揮拍發出進 rally；發球員被限制在發球框內（短發球線 `SERVE_LINE_Y` 後、左/右框） | ⬜ |
+| 7 | 場地有場地圖片（真圖非程序線） | B | 截圖見 `court_bg_no_glass`（觀眾+霓虹牆+地板線）；`hasCourtArt` 時不疊程序 court line | ⬜ |
+| 8 | 打到牆壁後回饋感優質 | A+B+C | 前牆撞擊觸發 `HITSTOP_FRONT_WALL` 凍幀 + `shake` 抖動 + 顏色 flash；**音效**（目前缺，需補） | ⬜ |
+| 9 | 球大小隨距離遠近透視縮放 | B | `ballRadius(depthT(y))` 近前牆小、近鏡頭大；截圖量近/遠球半徑比 | ⬜ |
+| 10 | 得分規則真的寫好 | A | tin/out/not-front-wall → 擊球者失分；double-bounce → 應接方失分；`deadReason` 與 `scorePoint` 歸屬一致 | ⬜ |
+
+### 第二批（深思後補充，≥10 項，2026-06-20）
+
+| # | 驗收項 | 驗法 | 通過條件 | 狀態 |
+|---|---|---|---|---|
+| 11 | 揮拍 timing 分級正確 | A | 同球不同時機揮 → `lastQuality` 落在 perfect/good/early/late，`|dt|` 對應 `TIMING_PERFECT/GOOD/WINDOW` 邊界 | ⬜ |
+| 12 | 揮拍冷卻不可連點作弊 | A | 連續每 tick 按揮拍 → 只在 `swingCooldown==0` 命中一次，冷卻期內按無效 | ⬜ |
+| 13 | 移動邊界 clamp（不穿牆出場） | A | 持續往任一方向移動 → `p1.pos` 夾在 `[PLAYER_MARGIN, COURT.width-MARGIN]`×`[…, depth-…]`，不越界 | ⬜ |
+| 14 | 魚躍救球（dive）可用且耗體力 | A | Shift 觸發 → `diveFrames>0` 沿 `diveDir` 滑、`stamina` 扣 `DIVE_STAMINA_COST`、結束進 `diveRecovery` 趴地鎖位 | ⬜ |
+| 15 | 體力系統（消耗/回復）合理 | A | 揮拍/魚躍扣體力、待機回 `STAMINA_REGEN`；體力 0 時移動速度減半（`speedFactor 0.5`） | ⬜ |
+| 16 | 落點預測 marker 準確 | A | `shuttle.landing` 預測點與球實際第一合法落地點誤差 < 一個身位（含牆反彈路徑） | ⬜ |
+| 17 | M 鍵分段預覽（教學）仍可用 | A+B | 發球進 preview 後按 M → 球逐段放行、撞牆/落地凍結等下一次 M；M 預覽不被新發球流程破壞 | ⬜ |
+| 18 | boast 反角 fault 閘正確 | A | 不在側牆邊按 boast → `need-angle` 閘擋下降級為 drive；貼側牆按 → 真的走側牆反角 | ⬜ |
+| 19 | drop/kill fault 閘正確 | A | 離前牆太遠按 drop → `max-front-dist` 降級；低球按 kill → `min-contact-z` 降級為 drive | ⬜ |
+| 20 | 練習模式不計分、無限對打 | A | 死球 → `resetForServe` 回發球、`scores` 不動、`winner` 恆 null，可一直打 | ⬜ |
+| 21 | 揮拍 timing 控前牆左右落點 | A | 早揮 → 前牆撞擊點偏左、晚揮偏右、準時置中（`aimXFromTiming`），落點 x 隨之變 | ⬜ |
+| 22 | 球拖尾 / 命中特效不殘留 | B | rally 結束/重置後 ballTrail、wallImpacts、cheer flash 清乾淨，不卡畫面 | ⬜ |
+| 23 | 觀眾歡呼觸發 | A+B | 精彩對拍（每 10 拍）/魚躍救球 → cheer flash + 文字觸發 | ⬜ |
+| 24 | 球永遠在四牆界內（不變量） | A | 連打數百 tick，`shuttle.pos` 恆在 `[0,width]×[0,depth]`、`z>=0`，無數值爆走/NaN | ⬜ |
+| 25 | 練習進場狀態正確 | A+C | 進練習模式 → `gameMode='practice'`、`phase='serve'`、`server=0`、提示「按 M 拋球」、seam 掛上 | ⬜ |
+
+### 設計變更：練習模式 = 軌跡留存 + 自由對打（Bob 拍板 2026-06-20）
+
+> **根因**：原練習模式是「教學預覽」——發球揮拍後球進 `preview` 子階段，靠 M 鍵一段段慢動作放球，**永遠不進 rally、沒有第二拍**（實測：40 次 M 球從 by=686 才爬到 by=311，連前牆都沒到，`rallyHitCount` 恆 0）。這與「連揮十次 / 上下左右移動 / 四種擊球 / 對打感」直接矛盾。
+>
+> **新設計**：
+> 1. 發球揮拍後**直接進 `rally`**，球用真實物理飛、撞前牆反彈回來，玩家追球再揮 → 可連揮十次。
+> 2. **球飛過的軌跡一直留在畫面上**（renderer 累積球的歷史點，畫成持久殘影/線，不每幀清除）——保留教學「看得到球路」的價值。
+> 3. M 逐段預覽**降為可選**（發球前想看軌跡才按），不再卡在對打主路徑上。
+> 4. 死球仍 `resetForServe` 不計分、無限對打（項 20 不變）。
+
+### 交付規則
+
+- 每項標 ✅（附腳本輸出或截圖證據）/ ❌（附原因）。**不准用「應該通過」代替執行結果。**
+- ❌ 的項先修再重跑，不回報「理論上修好了」。
+- 全部 ✅ 後，實機 round-trip（驗法 C）+ 錄一段 GIF（至少含「連揮十次」），typecheck/build 綠 → 直接 push。
+
+---
+
 ## 9. 測試
 
 測試金字塔分三層：**L1 單元/物理（已綠）→ L2 E2E（重寫中）→ L3 人工試玩截圖（已做一輪）**。

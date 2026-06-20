@@ -175,15 +175,9 @@ export function step(state: GameState, inA: InputFrame, inB: InputFrame): GameSt
   shuttle = applyFloorBounce(shuttle, state.shuttle);
   shuttle = predictLanding(shuttle);
 
-  // Practice mode: first front-wall hit → freeze ball on the wall so player can read
-  // the rebound trajectory, then allow next serve.
-  if (state.gameMode === 'practice' && frontWallHit) {
-    // Compute where the rebound would land before freezing velocity
-    const reboundLanding = predictLanding({ ...shuttle });
-    const frozenShuttle = { ...reboundLanding, vel: { x: 0, y: 0 }, vz: 0, inPlay: false };
-    return { ...state, frame, p1, p2, shuttle: frozenShuttle, hitstop: 0, rallyHitCount,
-      serveSubPhase: 'toss' as const, phase: 'serve' as const, phaseTimer: 0 };
-  }
+  // Practice free-rally mode: the front-wall hit is NOT a freeze point any more — the ball
+  // rebounds and stays live so the player can chase it and keep the rally going (Bob: 自由對打).
+  // The extra hit-stop above already gives the impact its weight.
 
   // Scoring: a dead-ball reason was set this tick (tin/out/double-bounce/not-front-wall).
   if (shuttle.inPlay && shuttle.deadReason !== null) {
@@ -932,23 +926,26 @@ export function sampleServePath(
 const PREVIEW_START_Z = 80;
 
 /**
- * Enter the M-key preview: arm the ball with its REAL serve velocity and freeze it at the
- * player's position. The ball is in play but motionless until the first M press releases it;
- * from then on each M press releases it again after it freezes at a wall/floor contact. The
- * flight uses real physics in slow-motion (previewPhysicsStep), so it decelerates naturally.
- *
- * previewPathIdx is reused as the release flag: -1 = frozen (waiting for M), 0 = flying.
+ * Practice free-rally serve: the player's serve swing launches the ball LIVE into a normal
+ * rally with real physics (instead of the old frozen M-by-M preview). The ball flies to the
+ * front wall, rebounds, and the player chases it to keep the rally going — this is what makes
+ * "swing ten times in a row" possible. The computed preview path is kept in `previewPath` so
+ * the renderer can draw a PERSISTENT trail of where the serve went (Bob: 軌跡一直留著).
  */
-function enterPreview(state: GameState, stroke: StrokeId, path: PathPoint[]): GameState {
+function launchPracticeRally(state: GameState, stroke: StrokeId, path: PathPoint[]): GameState {
   const pos: Vec2 = { x: state.p1.pos.x, y: state.p1.pos.y };
   const vel = practiceServeVelocity(state, stroke, pos, PREVIEW_START_Z);
+  const p1 = { ...state.p1, lastStroke: stroke, justHit: true, swingCooldown: SWING_COOLDOWN_FRAMES };
   return {
     ...state,
-    serveSubPhase: 'preview',
-    previewPath: path,
+    phase: 'rally',
+    serveSubPhase: null,
+    previewPath: path,      // kept for the persistent trail overlay
     previewStroke: stroke,
     previewStep: -1,
-    previewPathIdx: -1, // frozen: wait for first M
+    previewPathIdx: -1,
+    rallyHitCount: 1,       // the serve counts as the first hit of the rally
+    p1,
     shuttle: {
       ...state.shuttle,
       pos,
@@ -1023,8 +1020,12 @@ function stepPracticeServe(state: GameState, inA: InputFrame): GameState {
       const dy = sh.pos.y - state.p1.pos.y;
       const nearBody = Math.hypot(dx, dy) <= PRACTICE_HIT_RANGE;
       if (nearBody) {
+        // Free-rally design: the serve swing launches the ball LIVE with real
+        // physics into a normal rally (not the old frozen M-by-M preview), so the
+        // player can chase the rebound and keep swinging. The path is kept only as
+        // a persistent on-screen trail.
         const path = computePreviewPath(state.p1.pos, inA.stroke, state);
-        return enterPreview(state, inA.stroke, path);
+        return launchPracticeRally(state, inA.stroke, path);
       }
       // Swung but the ball was too far — the swing still commits (cooldown) but
       // the ball keeps drifting; if it lands they lose the point.
@@ -1044,7 +1045,7 @@ function stepPracticeServe(state: GameState, inA: InputFrame): GameState {
   if (sub === 'swing') {
     if (inA.swing) {
       const path = computePreviewPath(state.p1.pos, inA.stroke, state);
-      return enterPreview(state, inA.stroke, path);
+      return launchPracticeRally(state, inA.stroke, path);
     }
     const p1s = movePlayer(state.p1, inA, 0, state.shuttle, state);
     return { ...state, p1: p1s };
