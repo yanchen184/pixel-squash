@@ -3,6 +3,7 @@ import { CanvasRenderer, GAME_WIDTH, GAME_HEIGHT } from '@/game/render/CanvasRen
 import { PracticeRenderer } from '@/game/render/PracticeRenderer';
 import type { Difficulty } from '@/game/input/AIInput';
 import type { GameMode } from '@/data/gameState';
+import { SoundEngine } from '@/game/audio/SoundEngine';
 import { Hud } from './Hud';
 import { Controls, disposeControls } from './Controls';
 
@@ -35,6 +36,9 @@ export function GameView({ config, onExit }: { config: MatchConfig; onExit: () =
       // verifies it via canvas pixels + DOM instead).
       const debug = (renderer as { debug?: () => unknown }).debug?.();
       if (debug) (window as unknown as { __squash: unknown }).__squash = debug;
+      // E2E seam: expose the SoundEngine singleton so a round-trip can spy that
+      // practice-mode events (wall/racket/fault) actually fire sound calls.
+      (window as unknown as { __sound: SoundEngine }).__sound = SoundEngine.get();
     }
     return () => {
       renderer.stop();

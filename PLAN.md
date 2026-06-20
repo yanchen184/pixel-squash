@@ -481,7 +481,7 @@ type GameEvents = {
 | 5 | 彈跳（牆/地板）合理 | A | 牆反彈速度保留率 ≈ `FRONT_WALL_BOUNCE/WALL_BOUNCE`±0.05；地板第一彈起、第二落地 `deadReason='double-bounce'` | ✅（腳本 A 通過） |
 | 6 | 發球規則完善 | A+C | M 拋球→升起→揮拍發出進 rally；發球員被限制在發球框內（短發球線 `SERVE_LINE_Y` 後、左/右框） | 🟡（A 物理已過；B/C 視覺/音效待截圖） |
 | 7 | 場地有場地圖片（真圖非程序線） | B | 截圖見 `court_bg_no_glass`（觀眾+霓虹牆+地板線）；`hasCourtArt` 時不疊程序 court line | ⬜（待瀏覽器截圖驗） |
-| 8 | 打到牆壁後回饋感優質 | A+B+C | 前牆撞擊觸發 `HITSTOP_FRONT_WALL` 凍幀 + `shake` 抖動 + 顏色 flash；**音效**（目前缺，需補） | 🟡（A 物理已過；B/C 視覺/音效待截圖） |
+| 8 | 打到牆壁後回饋感優質 | A+B+C | 前牆撞擊觸發 `HITSTOP_FRONT_WALL` 凍幀 + `shake` 抖動 + 顏色 flash + **音效**（已補：`PracticeRenderer` 接上 `SoundEngine`，前牆/側牆/落地/球拍/tin/out 全有聲）。練習 fault 同 tick reset 無 `point` phase，故新增 `state.lastFaultReason` 把死球原因帶過 reset 一格供 renderer 播 tin/out call | ✅（A 物理測試過；音效瀏覽器 round-trip 驗證 6 類全觸發：frontWallHit×2/sideWallHit×1/floorBounce×1/racketHit×2/tinHit/outCall；`tests/practice-fault-feedback.test.ts` 鎖 sim 合約） |
 | 9 | 球大小隨距離遠近透視縮放 | B | `ballRadius(depthT(y))` 近前牆小、近鏡頭大；截圖量近/遠球半徑比 | ⬜（待瀏覽器截圖驗） |
 | 10 | 得分規則真的寫好 | A | tin/out/not-front-wall → 擊球者失分；double-bounce → 應接方失分；`deadReason` 與 `scorePoint` 歸屬一致 | ✅（腳本 A 通過） |
 

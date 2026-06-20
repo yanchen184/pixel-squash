@@ -169,6 +169,13 @@ export type GameState = {
    * no effect outside practice mode, so the player's free-rally experience is unchanged.
    */
   rallyFrozen: boolean;
+  /**
+   * Practice-only: the fault reason that ended the LAST rally, surfaced for ONE serve frame.
+   * Practice resets straight to serve the same tick a fault occurs (no 'point' phase), so the
+   * renderer can't read deadReason off the post-reset shuttle. This carries it across that reset
+   * so wall/fault feedback (tin/out call sounds) can still fire. Null outside practice / once consumed.
+   */
+  lastFaultReason: DeadReason | null;
 };
 
 // ---- Logic-space constants (deterministic) ----
@@ -319,6 +326,7 @@ export function createInitialState(): GameState {
       previewStep: -1,
       previewPathIdx: -1,
       rallyFrozen: false,
+      lastFaultReason: null,
     },
     0,
   );
@@ -360,6 +368,7 @@ export function resetForServe(state: GameState, server: Side): GameState {
     previewStroke: null,
     previewStep: -1,
     rallyFrozen: false,
+    lastFaultReason: null, // cleared on every serve; the practice fault path re-sets it after this
     phaseTimer: 45,
     p1: { ...state.p1, pos: { ...makePlayer(0).pos }, facing: 'up', diveFrames: 0, diveDir: { x: 0, y: 0 }, diveRecovery: 0 },
     p2: { ...state.p2, pos: { ...makePlayer(1).pos }, facing: 'up', diveFrames: 0, diveDir: { x: 0, y: 0 }, diveRecovery: 0 },

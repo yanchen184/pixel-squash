@@ -32,12 +32,14 @@ import {
   SWING_COOLDOWN_FRAMES,
   type GameState,
   type PlayerState,
+  type DeadReason,
 } from '@/data/gameState';
 import { SimRunner } from '@/game/sim/SimRunner';
 import { type PathPoint } from '@/game/sim/simulate';
 import { LocalInput } from '@/game/input/LocalInput';
 import { AIInput } from '@/game/input/AIInput';
 import { eventBus } from '@/game/eventBus';
+import { SoundEngine } from '@/game/audio/SoundEngine';
 import { loadAssets, getImage, PLAYER_BACKVIEW_CROPS, PLAYER_ACTIONS_V2_CROPS, OPPONENT_CROPS } from '@/assets/assetLoader';
 
 export const GAME_WIDTH = 1280;
@@ -172,6 +174,11 @@ export class PracticeRenderer {
   // wall (previously practice mode only reacted to scoring, so wall hits felt dead).
   private prevLastWall: string | null = null;
   private prevHitFrontWall = false;
+  // Sound-trigger edge tracking (practice mode was silent — only CanvasRenderer wired
+  // SoundEngine. These mirror that wiring so wall hits / racket hits / faults make noise).
+  private prevBouncesSinceWall = 0;
+  private prevJustHit: { p1: boolean; p2: boolean } = { p1: false, p2: false };
+  private prevFaultReason: DeadReason | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
@@ -182,6 +189,10 @@ export class PracticeRenderer {
     this.runner.reset();
     loadAssets().then(() => { this.assetsReady = true; }).catch(() => {});
     this.bindEvents();
+    // Web Audio needs a user gesture to unlock; arm it on the first key/pointer.
+    const unlock = () => { SoundEngine.get().unlock(); };
+    window.addEventListener('keydown', unlock, { once: true });
+    window.addEventListener('pointerdown', unlock, { once: true });
   }
 
   start(): void {
@@ -249,6 +260,8 @@ export class PracticeRenderer {
       const color = sh.z < TIN_HEIGHT ? '#ff3030' : sh.z > FRONT_OUT_HEIGHT ? '#ffcc30' : '#40ddff';
       this.wallImpacts.push({ x: px, y: py, r: 0, age: 0, color });
       this.shake = Math.max(this.shake, 9);
+      const spd = Math.hypot(sh.vel.x, sh.vel.y);
+      SoundEngine.get().frontWallHit(Math.min(1, spd / 18));
     }
 
     // Side / back wall: lighter shake + neutral flash.
@@ -256,10 +269,45 @@ export class PracticeRenderer {
     if (wallChanged) {
       this.wallImpacts.push({ x: px, y: py, r: 0, age: 0, color: '#7090c0' });
       this.shake = Math.max(this.shake, 5);
+      SoundEngine.get().sideWallHit();
+    }
+
+    // Floor bounce.
+    if (sh.bouncesSinceWall !== this.prevBouncesSinceWall && sh.bouncesSinceWall > 0) {
+      SoundEngine.get().floorBounce(sh.bouncesSinceWall);
     }
 
     this.prevLastWall = sh.lastWall ?? null;
     this.prevHitFrontWall = sh.hitFrontWall;
+    this.prevBouncesSinceWall = sh.bouncesSinceWall;
+  }
+
+  /**
+   * Racket-hit and fault sounds (the rest of the front-wall feedback set). Kept
+   * separate from detectWallImpacts because these fire on player/phase edges, not
+   * on the shuttle's wall state, and need to run even when the ball isn't inPlay.
+   */
+  private detectSounds(s: GameState): void {
+    // Racket hit — fires on each player's justHit rising edge, scaled by quality.
+    const checkHit = (who: 'p1' | 'p2', pl: PlayerState): void => {
+      if (pl.justHit && !this.prevJustHit[who]) {
+        SoundEngine.get().racketHit(pl.lastQuality ?? 'good');
+      }
+      this.prevJustHit[who] = pl.justHit;
+    };
+    checkHit('p1', s.p1);
+    checkHit('p2', s.p2);
+
+    // Fault calls. In practice a fault resets straight back to serve the SAME tick (no
+    // 'point' phase — see simulate.ts:219), so we can't read deadReason off the post-reset
+    // shuttle. The sim carries the reason forward on state.lastFaultReason instead; play the
+    // call once, on its rising edge.
+    const fault = s.lastFaultReason;
+    if (fault != null && fault !== this.prevFaultReason) {
+      if (fault === 'tin') SoundEngine.get().tinHit();
+      else if (fault === 'out') SoundEngine.get().outCall();
+    }
+    this.prevFaultReason = fault;
   }
 
   /**
@@ -309,6 +357,7 @@ export class PracticeRenderer {
     const s = this.runner.current;
 
     this.detectWallImpacts(s);
+    this.detectSounds(s);
     this.updatePersistentTrail(s);
 
     // Screen shake

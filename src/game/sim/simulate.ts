@@ -214,9 +214,15 @@ export function step(state: GameState, inA: InputFrame, inB: InputFrame): GameSt
 
   // Scoring: a dead-ball reason was set this tick (tin/out/double-bounce/not-front-wall).
   if (shuttle.inPlay && shuttle.deadReason !== null) {
-    // Practice mode: reset rally without scoring instead of ending the point.
+    // Practice mode: reset rally without scoring instead of ending the point. Carry the
+    // fault reason across the same-tick reset so the renderer can still play the tin/out
+    // call (practice skips the 'point' phase the match renderer reads deadReason from).
     if (state.gameMode === 'practice') {
-      return { ...resetForServe({ ...state, frame, p1, p2, shuttle, hitstop: 0, rallyHitCount }, state.server), frame };
+      return {
+        ...resetForServe({ ...state, frame, p1, p2, shuttle, hitstop: 0, rallyHitCount }, state.server),
+        frame,
+        lastFaultReason: shuttle.deadReason,
+      };
     }
     return scorePoint({ ...state, frame, p1, p2, shuttle, hitstop: 0, rallyHitCount });
   }
@@ -978,6 +984,7 @@ function launchPracticeRally(state: GameState, stroke: StrokeId, path: PathPoint
     previewStep: -1,
     previewPathIdx: -1,
     rallyFrozen: false,     // start the rally live; M toggles the freeze test aid
+    lastFaultReason: null,  // a fresh rally clears the previous fault marker
     rallyHitCount: 1,       // the serve counts as the first hit of the rally
     p1,
     shuttle: {
