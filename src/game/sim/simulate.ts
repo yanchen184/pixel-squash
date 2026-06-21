@@ -210,7 +210,13 @@ export function step(state: GameState, inA: InputFrame, inB: InputFrame): GameSt
   // Front-wall impact this tick → freeze for a few frames so it feels weighty.
   const frontWallHit = prevLastWall !== 'front' && shuttle.lastWall === 'front';
   if (frontWallHit) hitstop = Math.max(hitstop, HITSTOP_FRONT_WALL);
-  shuttle = applyFloorBounce(shuttle, state.shuttle);
+  // Practice rally uses the gentler PRACTICE_FLOOR_FRICTION so the live ball sheds the SAME
+  // horizontal skid on its first bounce as the dashed preview path and the slow-mo preview
+  // ball (both of which already pass PRACTICE_FLOOR_FRICTION). Without this the live serve ran
+  // the match-default FLOOR_FRICTION (0.6) while the dashed guide ran 0.35, so the predicted
+  // line and the real flight diverged after the first floor bounce ("球一開始的軌跡跟實際軌跡不同").
+  const rallyFloorFriction = state.gameMode === 'practice' ? PRACTICE_FLOOR_FRICTION : FLOOR_FRICTION;
+  shuttle = applyFloorBounce(shuttle, state.shuttle, rallyFloorFriction);
   shuttle = predictLanding(shuttle);
 
   // Practice free-rally mode: the front-wall hit is NOT a freeze point any more — the ball
