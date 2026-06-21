@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pixel Squash — 功能與驗收狀態</title>
+<style>
+  :root{
+    --bg:#0d0f1a; --panel:#161a2e; --panel2:#1d2240; --ink:#e8ecff; --muted:#8a92c4;
+    --line:#2a3160; --neon-blue:#33c6ff; --neon-pink:#ff4f9d; --neon-green:#48e08a;
+    --neon-amber:#ffc24b; --neon-violet:#a070ff;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg);
+    background-image:
+      radial-gradient(1200px 400px at 50% -10%, rgba(51,198,255,.12), transparent),
+      radial-gradient(900px 360px at 90% 10%, rgba(255,79,157,.10), transparent);
+    color:var(--ink);
+    font-family:"Segoe UI","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+    line-height:1.55; padding:0 0 80px;
+  }
+  .wrap{max-width:1080px; margin:0 auto; padding:0 20px;}
+  header{
+    text-align:center; padding:48px 20px 28px;
+    border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg, rgba(29,34,64,.6), transparent);
+  }
+  h1{
+    font-size:38px; margin:0 0 6px; letter-spacing:1px;
+    text-shadow:0 0 18px rgba(51,198,255,.55);
+  }
+  h1 .emoji{filter:drop-shadow(0 0 6px rgba(255,194,75,.6));}
+  .sub{color:var(--muted); font-size:15px;}
+  .meta-row{
+    display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin-top:18px;
+  }
+  .chip{
+    background:var(--panel2); border:1px solid var(--line); border-radius:999px;
+    padding:5px 14px; font-size:13px; color:var(--ink);
+  }
+  .chip b{color:var(--neon-green);}
+  .chip a{color:var(--neon-blue); text-decoration:none;}
+  section{margin-top:42px;}
+  h2{
+    font-size:22px; margin:0 0 4px; display:flex; align-items:center; gap:10px;
+    border-left:4px solid var(--neon-blue); padding-left:12px;
+  }
+  h2.pink{border-color:var(--neon-pink);}
+  h2.green{border-color:var(--neon-green);}
+  h2.violet{border-color:var(--neon-violet);}
+  .section-note{color:var(--muted); font-size:13px; margin:0 0 18px 16px;}
+  .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:14px;}
+  .card{
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:14px 16px;
+  }
+  .card h3{margin:0 0 8px; font-size:15px; color:var(--neon-amber); display:flex; align-items:center; gap:8px;}
+  .card ul{margin:0; padding-left:18px;}
+  .card li{font-size:13.5px; margin:3px 0; color:var(--ink);}
+  .card li span{color:var(--muted);}
+  table{width:100%; border-collapse:collapse; font-size:13.5px; margin-top:6px;}
+  thead th{
+    text-align:left; padding:9px 10px; color:var(--muted); font-weight:600;
+    border-bottom:1px solid var(--line); font-size:12.5px; letter-spacing:.4px;
+    position:sticky; top:0; background:var(--bg);
+  }
+  tbody td{padding:9px 10px; border-bottom:1px solid rgba(42,49,96,.5); vertical-align:top;}
+  tbody tr:hover{background:rgba(51,198,255,.05);}
+  td.num{color:var(--muted); font-variant-numeric:tabular-nums; width:36px;}
+  .pass{color:var(--neon-green); font-weight:700; white-space:nowrap;}
+  .verify-badge{
+    display:inline-block; min-width:20px; text-align:center; border-radius:5px;
+    padding:1px 7px; font-size:11.5px; font-weight:700; margin-right:3px;
+  }
+  .vA{background:rgba(51,198,255,.16); color:var(--neon-blue); border:1px solid rgba(51,198,255,.4);}
+  .vB{background:rgba(255,194,75,.16); color:var(--neon-amber); border:1px solid rgba(255,194,75,.4);}
+  .vC{background:rgba(72,224,138,.16); color:var(--neon-green); border:1px solid rgba(72,224,138,.4);}
+  .legend{display:flex; flex-wrap:wrap; gap:14px; margin:8px 0 16px 16px; font-size:13px; color:var(--muted);}
+  .legend div{display:flex; align-items:center; gap:6px;}
+  .tests{display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px;}
+  .test-file{
+    background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 14px;
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .test-file .name{font-size:13.5px; font-family:"Consolas",monospace; color:var(--ink);}
+  .test-file .count{
+    background:rgba(72,224,138,.14); color:var(--neon-green); border:1px solid rgba(72,224,138,.4);
+    border-radius:999px; padding:2px 11px; font-size:12.5px; font-weight:700; white-space:nowrap;
+  }
+  .layer-row{
+    display:flex; gap:10px; align-items:flex-start; background:var(--panel); border:1px solid var(--line);
+    border-radius:10px; padding:13px 16px; margin-bottom:10px;
+  }
+  .layer-tag{
+    font-weight:800; font-size:13px; padding:3px 10px; border-radius:6px; white-space:nowrap; margin-top:1px;
+  }
+  .l1{background:rgba(72,224,138,.16); color:var(--neon-green);}
+  .l2{background:rgba(255,194,75,.16); color:var(--neon-amber);}
+  .l3{background:rgba(160,112,255,.16); color:var(--neon-violet);}
+  .layer-body{font-size:13.5px;}
+  .layer-body b{color:var(--ink);}
+  .layer-body .s{color:var(--muted);}
+  footer{
+    margin-top:48px; padding-top:20px; border-top:1px solid var(--line);
+    text-align:center; color:var(--muted); font-size:12.5px;
+  }
+  code{background:var(--panel2); padding:1px 6px; border-radius:4px; font-size:12.5px; color:var(--neon-blue);}
+  a.link{color:var(--neon-blue); text-decoration:none;}
+  a.link:hover{text-decoration:underline;}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1><span class="emoji">🎾</span> Pixel Squash</h1>
+    <div class="sub">像素壁球 · TypeScript + React + 原生 Canvas 2D（無遊戲引擎）· 決定性 60Hz 純函式 sim</div>
+    <div class="meta-row">
+      <span class="chip">驗收 <b>25 / 25 ✅</b></span>
+      <span class="chip">單元+物理測試 <b>88 / 88 綠</b></span>
+      <span class="chip">線上 <a href="https://pixel-squash.web.app" target="_blank">pixel-squash.web.app</a></span>
+      <span class="chip">最後更新 <b id="updated">2026-06-21</b></span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- ============ 功能 ============ -->
+  <section>
+    <h2 class="pink">🕹️ 專案功能</h2>
+    <p class="section-note">玩法核心：左手移動、右手揮拍；沒有蓄力條，威力純由揮拍 timing 品質決定。雙人共用地板、同朝前牆，球在真實 3D box（x 橫 / y 深度 / z 高度）裡飛，渲染投影成第三人稱房間透視。</p>
+    <div class="grid">
+      <div class="card">
+        <h3>🏓 六種球路（揮拍）</h3>
+        <ul>
+          <li><b>Kill 殺球</b> <span>J — 貼 tin 的平快直軌（需高球）</span></li>
+          <li><b>Drop 放小球</b> <span>K — 近前牆輕觸前角</span></li>
+          <li><b>Drive 抽球</b> <span>L — 直線安全主力球</span></li>
+          <li><b>Boast 反角</b> <span>U — 走側牆反角（貼側牆時）</span></li>
+          <li><b>Lob 高吊</b> <span>Space — 高飄到後角（重整節奏）</span></li>
+          <li><b>Serve 發球</b> <span>M 拋球 → 揮拍發出</span></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>🏃 移動與救球</h3>
+        <ul>
+          <li><b>八向移動</b> <span>WASD / 方向鍵，跑步 stride-bob 步伐動畫</span></li>
+          <li><b>魚躍救球 Dive</b> <span>Shift — 延伸撲救，耗體力、結束趴地鎖位</span></li>
+          <li><b>邊界 clamp</b> <span>夾在場內不穿牆出界</span></li>
+          <li><b>體力系統</b> <span>揮拍/魚躍消耗、待機回復；0 體力移速減半</span></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>⚖️ 規則與物理</h3>
+        <ul>
+          <li><b>PAR-11 計分</b> <span>11 分制、需淨勝 2 分</span></li>
+          <li><b>四牆 3D 反彈</b> <span>前牆/側牆/地板各自保留率</span></li>
+          <li><b>死球判定</b> <span>tin（前牆 tin 以下）/ 二次落地 / 出界</span></li>
+          <li><b>非法球自動降級</b> <span>低球殺球 → 自動變抽球</span></li>
+          <li><b>揮拍 timing 分級</b> <span>perfect / good / early / late，控前牆落點</span></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>🎬 練習模式</h3>
+        <ul>
+          <li><b>軌跡留存</b> <span>球飛過的路徑持久殘影留在畫面</span></li>
+          <li><b>自由無限對打</b> <span>不計分、死球自動回發球，可連揮十次</span></li>
+          <li><b>M 鍵凍結/分段</b> <span>活球凍結、青虛線+落點環走位再揮（測試輔助，預設 OFF）</span></li>
+          <li><b>揮拍後搖 + 揮空</b> <span>程序化 follow-through 緩衝回正；揮空踉蹌恢復動作</span></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>🎨 視覺與回饋</h3>
+        <ul>
+          <li><b>真實場地圖</b> <span>觀眾席+霓虹牆+地板透視線（非程序裸線）</span></li>
+          <li><b>透視縮放</b> <span>球大小隨深度遠近縮放（近 22px / 遠 4px）</span></li>
+          <li><b>撞牆回饋</b> <span>凍幀 hit-stop + 畫面抖動 + 顏色 flash + 音效</span></li>
+          <li><b>觀眾歡呼</b> <span>每 10 拍精彩對拍 / 魚躍救球觸發歡呼</span></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>🖥️ 平台與架構</h3>
+        <ul>
+          <li><b>決定性 sim</b> <span>step() 純函式、無 random/Date、可重播</span></li>
+          <li><b>輸入 seam</b> <span>鍵盤 / 觸控（搖桿+按鈕）/ AI 共用入口</span></li>
+          <li><b>對電腦對戰</b> <span>vs-computer 走前牆渲染、AI 分難度</span></li>
+          <li><b>觸控鏡像</b> <span>手機螢幕搖桿+球路鍵+魚躍鏡像鍵盤</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 驗收 ============ -->
+  <section>
+    <h2 class="green">✅ 驗收目標（25 項全通過）</h2>
+    <p class="section-note">「練習模式寫好」的定義 — 逐項實際執行驗收，不以「程式邏輯看起來對」代替（遵專案驗收紀律）。每項標明用哪種驗法。</p>
+    <div class="legend">
+      <div><span class="verify-badge vA">A</span> 腳本物理：注入按鍵、逐 tick pump sim、讀 state 斷言數值（給 pass/fail 數字）</div>
+      <div><span class="verify-badge vB">B</span> 截圖逐幀：截圖肉眼比對動畫流暢 / 透視 / 場地圖 / 視覺回饋</div>
+      <div><span class="verify-badge vC">C</span> 實機 round-trip：真人鍵盤路徑，畫面端真的反應（最終把關）</div>
+    </div>
+    <table>
+      <thead>
+        <tr><th class="num">#</th><th>驗收項</th><th style="width:90px">驗法</th><th style="width:64px">狀態</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="num">1</td><td>連續揮拍十次（進 rally 連揮、rallyHitCount ≥10、每拍 justHit 觸發、無卡死）</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">2</td><td>上下左右移動動畫順暢（runLeft/runRight/前後移幀切換、無跳格定格）</td><td><span class="verify-badge vB">B</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">3</td><td>四種擊球動畫順暢且物理合理（kill/drop/drive/boast 各對應幀 + 球路 profile）</td><td><span class="verify-badge vA">A</span><span class="verify-badge vB">B</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">4</td><td>出界邏輯正確（過揮 → deadReason='out'；正常球不誤判）</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">5</td><td>彈跳合理（牆反彈保留率 ±0.05；地板二次落地 double-bounce 死球）</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">6</td><td>發球規則完善（拋球→升起→揮拍進 rally；發球員限制在發球框內）</td><td><span class="verify-badge vA">A</span><span class="verify-badge vC">C</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">7</td><td>場地有真實場地圖片（觀眾+霓虹牆+地板線，非程序裸線）</td><td><span class="verify-badge vB">B</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">8</td><td>打到牆壁後回饋優質（hit-stop 凍幀 + 抖動 + 顏色 flash + 6 類音效）</td><td><span class="verify-badge vA">A</span><span class="verify-badge vB">B</span><span class="verify-badge vC">C</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">9</td><td>球大小隨距離遠近透視縮放（近前牆小、近鏡頭大，比 5.5×）</td><td><span class="verify-badge vB">B</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">10</td><td>得分規則真的寫好（deadReason 與 scorePoint 歸屬一致）</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">11</td><td>揮拍 timing 分級正確（perfect/good/early/late 對應視窗邊界）</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">12</td><td>揮拍冷卻不可連點作弊（只在 swingCooldown==0 命中一次）</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">13</td><td>移動邊界 clamp（pos 夾在場內，不穿牆出場）</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">14</td><td>魚躍救球可用且耗體力（diveFrames 滑行、扣 stamina、結束趴地鎖位）</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">15</td><td>體力系統合理（消耗/回復；0 體力移速減半）</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">16</td><td>落點預測 marker 準確（預測點與實際落地誤差 &lt; 一個身位）</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">17</td><td>M 鍵 rally 凍結與自由對打共存（凍結 0 漂移、解凍續跑、命中自動解凍）</td><td><span class="verify-badge vA">A</span><span class="verify-badge vB">B</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">18</td><td>boast 反角 fault 閘正確（非側牆 → need-angle 降級 drive；貼側牆 → 真反角）</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">19</td><td>drop/kill fault 閘正確（太遠 drop / 低球 kill → 降級 drive）</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">20</td><td>練習模式不計分、無限對打（死球回發球、scores 不動、winner 恆 null）</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">21</td><td>揮拍 timing 控前牆左右落點（早揮偏左/晚揮偏右/準時置中）</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">22</td><td>球拖尾/命中特效不殘留（重置後 trail/impacts/flash 全清乾淨）</td><td><span class="verify-badge vB">B</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">23</td><td>觀眾歡呼觸發（每 10 拍精彩對拍 / 魚躍救球 → cheer flash + 文字）</td><td><span class="verify-badge vA">A</span><span class="verify-badge vB">B</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">24</td><td>球永遠在四牆界內（連打數百 tick，pos/z 不爆走、無 NaN）</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">25</td><td>練習進場狀態正確（gameMode/phase/server 正確、提示與 seam 掛上）</td><td><span class="verify-badge vA">A</span><span class="verify-badge vC">C</span></td><td class="pass">✅</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ 測試 ============ -->
+  <section>
+    <h2 class="violet">🧪 測試金字塔</h2>
+    <p class="section-note">三層：L1 單元/物理（已綠）→ L2 E2E Playwright → L3 人工試玩截圖。可自動化的條件一律自動跑 pass/fail；「修好了」以 round-trip 為準（畫面/輸出端真的看得到），不以 build 綠 / server 起來的 handshake 為準。</p>
+
+    <div class="layer-row">
+      <span class="layer-tag l1">L1</span>
+      <div class="layer-body"><b>單元 + 物理（vitest run）— 88 / 88 綠</b><br>
+      <span class="s">決定性、發球流程、PAR 計分、壁球不變量、timing/hit-stop、6 球路 profile + 牆反彈守恆、量化物理體檢、練習模式對打/凍結/球路/死球回饋。</span></div>
+    </div>
+    <div class="tests" style="margin-bottom:16px;">
+      <div class="test-file"><span class="name">simulate.test.ts</span><span class="count">20 ✅</span></div>
+      <div class="test-file"><span class="name">feel.test.ts</span><span class="count">16 ✅</span></div>
+      <div class="test-file"><span class="name">practice-acceptance.test.ts</span><span class="count">13 ✅</span></div>
+      <div class="test-file"><span class="name">physics-audit.test.ts</span><span class="count">11 ✅</span></div>
+      <div class="test-file"><span class="name">strokes.test.ts</span><span class="count">8 ✅</span></div>
+      <div class="test-file"><span class="name">practice-strokes.test.ts</span><span class="count">7 ✅</span></div>
+      <div class="test-file"><span class="name">practice-freeze-step.test.ts</span><span class="count">7 ✅</span></div>
+      <div class="test-file"><span class="name">practice-fault-feedback.test.ts</span><span class="count">4 ✅</span></div>
+      <div class="test-file"><span class="name">practice-rally.test.ts</span><span class="count">2 ✅</span></div>
+    </div>
+
+    <div class="layer-row">
+      <span class="layer-tag l2">L2</span>
+      <div class="layer-body"><b>Playwright E2E（e2e/）</b><br>
+      <span class="s">真 React DOM 流程 + 最小 debug seam（window.__squash / __renderer）。涵蓋 match（boot+ticks+跑到勝負）、dive（KeyK 救球+耗體力+鎖位）、smoke（menu→practice→canvas 有畫面）。headed 跑（隱藏分頁 rAF 被 throttle）。</span></div>
+    </div>
+    <div class="tests" style="margin-bottom:16px;">
+      <div class="test-file"><span class="name">match.spec.ts</span><span class="count">E2E</span></div>
+      <div class="test-file"><span class="name">dive-save.spec.ts</span><span class="count">E2E</span></div>
+      <div class="test-file"><span class="name">dive-keyboard.spec.ts</span><span class="count">E2E</span></div>
+      <div class="test-file"><span class="name">smoke.spec.ts</span><span class="count">E2E</span></div>
+    </div>
+
+    <div class="layer-row">
+      <span class="layer-tag l3">L3</span>
+      <div class="layer-body"><b>人工試玩截圖 round-trip</b><br>
+      <span class="s">Playwright 驅動真 build，停 rAF → patch 真實 PlayerState → draw() → canvas.toDataURL 匯出 PNG 解碼判讀。本輪驗：四種揮拍 pose（kill/drop/drive/boast crop 重構後仍正確）、揮空踉蹌恢復、撞牆音效 6 類全觸發。</span></div>
+    </div>
+  </section>
+
+  <footer>
+    Pixel Squash · 自動化狀態頁 · 由 PLAN.md §8.6 驗收表 + vitest 結果整理<br>
+    線上遊玩 <a class="link" href="https://pixel-squash.web.app" target="_blank">pixel-squash.web.app</a> ·
+    本頁 <a class="link" href="https://html.yanchen.app/pixel-squash/" target="_blank">html.yanchen.app/pixel-squash</a>
+  </footer>
+
+</div>
+</body>
+</html>
