@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pixel Squash — 圖解手冊（球路 · 物理 · 發球）</title>
+<style>
+  :root{
+    --bg:#0d0f1a; --panel:#161a2e; --panel2:#1d2240; --ink:#e8ecff; --muted:#8a92c4;
+    --line:#2a3160; --neon-blue:#33c6ff; --neon-pink:#ff4f9d; --neon-green:#48e08a;
+    --neon-amber:#ffc24b; --neon-violet:#a070ff; --neon-red:#ff5b5b;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg);
+    background-image:
+      radial-gradient(1200px 400px at 50% -10%, rgba(51,198,255,.12), transparent),
+      radial-gradient(900px 360px at 90% 10%, rgba(255,79,157,.10), transparent);
+    color:var(--ink);
+    font-family:"Segoe UI","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+    line-height:1.55; padding:0 0 80px;
+  }
+  .wrap{max-width:1080px; margin:0 auto; padding:0 20px;}
+  header{
+    text-align:center; padding:48px 20px 28px;
+    border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg, rgba(29,34,64,.6), transparent);
+  }
+  h1{ font-size:38px; margin:0 0 6px; letter-spacing:1px; text-shadow:0 0 18px rgba(51,198,255,.55); }
+  h1 .emoji{filter:drop-shadow(0 0 6px rgba(255,194,75,.6));}
+  .sub{color:var(--muted); font-size:15px;}
+  .meta-row{display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin-top:18px;}
+  .chip{ background:var(--panel2); border:1px solid var(--line); border-radius:999px; padding:5px 14px; font-size:13px; color:var(--ink); }
+  .chip b{color:var(--neon-green);}
+  .chip a{color:var(--neon-blue); text-decoration:none;}
+  section{margin-top:46px;}
+  h2{ font-size:23px; margin:0 0 4px; display:flex; align-items:center; gap:10px; border-left:4px solid var(--neon-blue); padding-left:12px; }
+  h2.pink{border-color:var(--neon-pink);}
+  h2.green{border-color:var(--neon-green);}
+  h2.violet{border-color:var(--neon-violet);}
+  h2.amber{border-color:var(--neon-amber);}
+  h2.red{border-color:var(--neon-red);}
+  .section-note{color:var(--muted); font-size:13.5px; margin:0 0 20px 16px; max-width:880px;}
+  figure{ margin:0 0 26px; background:var(--panel); border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+  figure img{ display:block; width:100%; height:auto; background:#06080f; border-bottom:1px solid var(--line); }
+  figcaption{ padding:14px 18px 16px; }
+  figcaption .ftitle{ font-size:15.5px; font-weight:700; color:var(--neon-amber); margin:0 0 5px; display:flex; align-items:center; gap:8px; }
+  figcaption p{ margin:0; font-size:13.8px; color:var(--ink); }
+  figcaption p .s{color:var(--muted);}
+  .tag{ display:inline-block; font-size:11.5px; font-weight:700; border-radius:6px; padding:1px 8px; margin-left:2px; }
+  .tag-blue{background:rgba(51,198,255,.16); color:var(--neon-blue); border:1px solid rgba(51,198,255,.4);}
+  .tag-green{background:rgba(72,224,138,.16); color:var(--neon-green); border:1px solid rgba(72,224,138,.4);}
+  .tag-red{background:rgba(255,91,91,.16); color:var(--neon-red); border:1px solid rgba(255,91,91,.4);}
+  .tag-violet{background:rgba(160,112,255,.16); color:var(--neon-violet); border:1px solid rgba(160,112,255,.4);}
+  .duo{display:grid; grid-template-columns:1fr 1fr; gap:18px;}
+  @media(max-width:760px){ .duo{grid-template-columns:1fr;} }
+  .duo figure{margin-bottom:0;}
+  .keymap{ display:flex; flex-wrap:wrap; gap:8px; margin:2px 0 0; }
+  .key{ font-family:"Consolas",monospace; font-size:12px; background:var(--panel2); border:1px solid var(--line); border-radius:6px; padding:2px 9px; color:var(--neon-blue); }
+  footer{ margin-top:52px; padding-top:20px; border-top:1px solid var(--line); text-align:center; color:var(--muted); font-size:12.5px; }
+  a.link{color:var(--neon-blue); text-decoration:none;}
+  a.link:hover{text-decoration:underline;}
+  .axis{ background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:12px 16px; margin:0 0 8px; font-size:13.3px; color:var(--ink); }
+  .axis b{color:var(--neon-green);}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1><span class="emoji">🎾</span> Pixel Squash 圖解手冊</h1>
+    <div class="sub">每張截圖皆自真實 sim 取景並逐張人工驗證 · 球路 / 物理規律 / 發球分解</div>
+    <div class="meta-row">
+      <span class="chip">截圖 <b>14 張</b>（全人工驗）</span>
+      <span class="chip">球路 <b>5 種揮拍 + 三星</b></span>
+      <span class="chip">物理 <b>玻璃 / 出界 / tin</b></span>
+      <span class="chip">狀態頁 <a href="./">功能與驗收 →</a></span>
+      <span class="chip">最後更新 <b id="updated">2026-06-23</b></span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- ============ 架構 ============ -->
+  <section>
+    <h2 class="violet">🏟️ 整個遊戲的架構</h2>
+    <p class="section-note">
+      相機釘在<strong>前牆、朝後看</strong> —— 玻璃後牆 + 觀眾位於畫面遠端中央，近相機處（畫面底部）是前牆。
+      球在真實 3D box 裡飛，投影成第三人稱房間透視。下圖標出全部結構：出界線、發球線、tin、玻璃後牆、左右發球框、HUD。
+    </p>
+    <div class="axis">
+      座標系：<b>x</b> 橫向（0–640）· <b>y</b> 深度（0 前牆 → 980 後玻璃牆）· <b>z</b> 高度（0–480）。
+      牆面顏色線：<span style="color:var(--neon-amber)">OUT（出界線）</span>· <span style="color:var(--neon-green)">SERVICE（發球線）</span>· <span style="color:var(--neon-red)">TIN（前牆下緣，打到即死）</span>。
+    </div>
+    <figure>
+      <img src="docs/manual/01_architecture_overview.png" alt="遊戲架構總覽：標註全場結構">
+      <figcaption>
+        <p class="ftitle">球場結構總覽</p>
+        <p><span class="s">畫面頂：</span>橘色 OUT 線沿天花板收斂；<span class="s">中央遠端：</span>玻璃後牆透出觀眾與贊助看板；
+        <span class="s">玻璃上橫線：</span>前牆出界線；<span class="s">綠線：</span>SERVICE 發球線；<span class="s">底部紅線：</span>TIN；
+        地板左右兩個梯形是<strong>發球框</strong>（當前發球框高亮）；左上/右上為雙方比分與體力 HUD。</p>
+      </figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ 揮拍球路 ============ -->
+  <section>
+    <h2 class="pink">🏓 每種揮拍的動作與清晰路線</h2>
+    <p class="section-note">
+      五種揮拍各有獨立的飛行剖面（出牆高度、飛行時間、瞄準點都不同）。每張皆走<strong>真實練習發球流程</strong>（拋球 → 揮拍 → launchPracticeRally）打出，
+      黃色持久殘影就是該球的真實軌跡；亮球頭帶尾勁，正從前牆剝離 —— 那一刻最能讀出是哪一種球。
+      <span class="keymap" style="margin-top:8px">
+        <span class="key">J 殺球</span><span class="key">K 放小球</span><span class="key">L 抽球</span><span class="key">U 反角</span><span class="key">Space 高吊</span>
+      </span>
+    </p>
+
+    <div class="duo">
+      <figure>
+        <img src="docs/manual/11_swing_kill.png" alt="Kill 殺球軌跡">
+        <figcaption>
+          <p class="ftitle">Kill 殺球 <span class="tag tag-red">最平最低</span></p>
+          <p>出牆高度約 42% 牆高、飛行時間最短 —— 軌跡最平貼，下壓快、瞄準接球者腳邊。<span class="s">需要高球才合法，低球會自動降級成抽球。</span></p>
+        </figcaption>
+      </figure>
+      <figure>
+        <img src="docs/manual/12_swing_drop.png" alt="Drop 放小球軌跡">
+        <figcaption>
+          <p class="ftitle">Drop 放小球 <span class="tag tag-blue">最短</span></p>
+          <p>貼近前牆輕觸前角，落點最短、弧線收得最快 —— 把對手吊到網前。</p>
+        </figcaption>
+      </figure>
+    </div>
+
+    <div class="duo">
+      <figure>
+        <img src="docs/manual/10_swing_drive.png" alt="Drive 抽球軌跡">
+        <figcaption>
+          <p class="ftitle">Drive 抽球 <span class="tag tag-green">主力球</span></p>
+          <p>標準直線安全球，中等出牆高度、瞄準接球者 —— 沿邊線回後場的穩定主力路線。</p>
+        </figcaption>
+      </figure>
+      <figure>
+        <img src="docs/manual/13_swing_lob.png" alt="Lob 高吊軌跡">
+        <figcaption>
+          <p class="ftitle">Lob 高吊 <span class="tag tag-violet">最高</span></p>
+          <p>出牆高度約 85% 牆高、飛行時間最長 —— 高飄越過出界線下方、落到後角，重整節奏。</p>
+        </figcaption>
+      </figure>
+    </div>
+
+    <figure>
+      <img src="docs/manual/14_swing_boast.png" alt="Boast 反角軌跡：先打側牆再前牆">
+      <figcaption>
+        <p class="ftitle">Boast 反角 <span class="tag tag-violet">先側牆後前牆</span></p>
+        <p>軌跡先深入<strong>右側牆</strong>（畫面右緣那段殘影），再斜切到前牆 —— 牆序為「側→前」，這正是 boast 的招牌簽名。
+        亮球頭正從前牆剝離、帶尾勁。<span class="s">記錄到的牆序 <code style="color:var(--neon-amber)">["27:right","38:front"]</code>。</span></p>
+      </figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ 三顆星 ============ -->
+  <section>
+    <h2 class="amber">⭐ 三顆星的球路（三面牆）</h2>
+    <p class="section-note">
+      「三顆星」＝球在第一次落地前依序碰到<strong>左牆 + 右牆 + 前牆</strong>三面牆。兩種取景都收：乾淨單弧版讀得清楚，多牆豐富版展示物理的複雜度。
+    </p>
+    <div class="duo">
+      <figure>
+        <img src="docs/manual/03_three_star_clean.png" alt="三顆星 — 乾淨單弧">
+        <figcaption>
+          <p class="ftitle">乾淨三星 <span class="tag tag-green">單一可讀弧</span></p>
+          <p>側 → 側 → 前，三角各自分明、第一次落地前完成 —— 一條乾淨的三角弧，最容易看懂三面牆的順序。</p>
+        </figcaption>
+      </figure>
+      <figure>
+        <img src="docs/manual/06_three_star_rich.png" alt="三顆星 — 多牆豐富">
+        <figcaption>
+          <p class="ftitle">豐富三星 <span class="tag tag-blue">多牆展示</span></p>
+          <p>最寬的多牆鋪展，殘影織成密網 —— 展示球在四牆 3D box 內連續反彈的物理張力。</p>
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ============ 物理：玻璃 / 出界 / tin ============ -->
+  <section>
+    <h2 class="green">🔬 球的物理規律：玻璃牆 / 出界 / tin</h2>
+    <p class="section-note">
+      玻璃是<strong>後牆</strong>（觀眾在它後面）。打到玻璃會反彈但<strong>不結束 rally</strong> —— 所以「打到玻璃後還能繼續擊球」。
+      球一路帶尾勁，剛打到玻璃那一刻才看得出來。對比兩種<strong>死球</strong>：打太高出界、打太低觸 tin。
+    </p>
+    <figure>
+      <img src="docs/manual/05_glass_hit_continue.png" alt="打到玻璃後球仍在場上、可繼續擊球">
+      <figcaption>
+        <p class="ftitle">打到玻璃 → 繼續擊球 <span class="tag tag-green">不死球</span></p>
+        <p>球驅深至後玻璃牆（畫面遠端中央、觀眾正前），以 WALL_BOUNCE 反彈、<code style="color:var(--neon-amber)">lastWall="back"</code>，
+        rally 不中斷。亮球頭緊貼玻璃、尾勁指回它剛撞上的玻璃 —— 玩家可追身續打。</p>
+      </figcaption>
+    </figure>
+    <div class="duo">
+      <figure>
+        <img src="docs/manual/07_out_too_high.png" alt="打太高沒打到玻璃、飛過出界線出界">
+        <figcaption>
+          <p class="ftitle">打太高 → 出界 <span class="tag tag-red">OUT fault</span></p>
+          <p>球在前牆平面上方越過 OUT 線 —— 沒打到玻璃、直接出界，<code style="color:var(--neon-red)">deadReason="out"</code>。</p>
+        </figcaption>
+      </figure>
+      <figure>
+        <img src="docs/manual/08_tin_fault.png" alt="打太低觸 tin 死球">
+        <figcaption>
+          <p class="ftitle">打太低 → 觸 tin <span class="tag tag-red">TIN fault</span></p>
+          <p>球擊中前牆 tin 以下（紅線之下）—— 死球，<code style="color:var(--neon-red)">deadReason="tin"</code>。</p>
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ============ 發球分解 ============ -->
+  <section>
+    <h2 class="blue">🎬 發球的分解動作</h2>
+    <p class="section-note">
+      練習模式發球分三步：走進發球框 → 按 <span class="key">M</span> 拋球 → 揮拍鍵打出。
+      這是策略遊戲不是反應遊戲 —— 拋起的球以慢動作飄浮，給玩家時間讀位、選球路再揮拍。
+    </p>
+    <figure>
+      <img src="docs/manual/20_serve_1_toss_prompt.png" alt="發球第一步：準備拋球">
+      <figcaption>
+        <p class="ftitle">① 準備拋球 <span class="tag tag-blue">toss prompt</span></p>
+        <p>站進發球框（高亮框），底部提示「<strong>【拋球】按 M 把球拋起</strong>」。發球框由站位自動鎖定。</p>
+      </figcaption>
+    </figure>
+    <figure>
+      <img src="docs/manual/21_serve_2_airborne.png" alt="發球第二步：球拋起、慢動作飄浮">
+      <figcaption>
+        <p class="ftitle">② 拋球騰空 <span class="tag tag-amber" style="background:rgba(255,194,75,.16);color:var(--neon-amber);border:1px solid rgba(255,194,75,.4)">slow-mo airborne</span></p>
+        <p>按 M 後球以慢動作上升（發光亮球 + 上升尾跡），停在球員上方 —— 這段時間玩家讀位、選擇 J/K/L/U/Space。</p>
+      </figcaption>
+    </figure>
+    <figure>
+      <img src="docs/manual/22_serve_3_launch_path.png" alt="發球第三步：揮拍打出、整條發球軌跡">
+      <figcaption>
+        <p class="ftitle">③ 揮拍打出 → 真實發球軌跡 <span class="tag tag-green">launch + path</span></p>
+        <p>揮拍鍵把球以真實物理 launch 成 live rally。黃色持久殘影畫出完整發球路線：左側發出 → 上弧抵前牆（玻璃）→ 反彈下落到右側地板 → 二段彈跳。<span class="s">這就是發球的完整物理軌跡。</span></p>
+      </figcaption>
+    </figure>
+  </section>
+
+  <footer>
+    Pixel Squash · 像素壁球 · TypeScript + React + 原生 Canvas 2D · 決定性 60Hz 純函式 sim<br>
+    14 張截圖全部取自真實 sim 取景並逐張人工驗證 · 線上遊戲 <a class="link" href="https://pixel-squash.web.app" target="_blank">pixel-squash.web.app</a>
+  </footer>
+
+</div>
+</body>
+</html>
