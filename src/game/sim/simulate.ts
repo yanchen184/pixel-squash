@@ -544,6 +544,34 @@ function applyFloorBounce(
 }
 
 /**
+ * 唯一的球體前進一步。所有路徑（live rally / M-preview / 落點預測 / 虛線取樣）都呼叫它，
+ * 不准有第二份積分。dt<1 = 慢動作子步（位移與重力增量按 dt 縮放，阻力用 SHUTTLE_DRAG^dt
+ * 確保 1/dt 個子步乘回來剛好等於每 tick 的 SHUTTLE_DRAG）。牆/地板反彈重用既有
+ * applyWalls / applyFloorBounce，所以收斂後虛線與 live 在數學上不可能分岔。
+ */
+export interface StepOpts {
+  dt: number;            // 子步比例：live=1，slowmo preview=PRACTICE_PREVIEW_SLOWMO
+  floorFriction: number; // live=FLOOR_FRICTION，practice=PRACTICE_FLOOR_FRICTION
+}
+
+export function stepShuttle(s: ShuttleState, opts: StepOpts): ShuttleState {
+  if (!s.inPlay) return s;
+  const { dt, floorFriction } = opts;
+  const vz = s.vz - GRAVITY * dt;
+  const subDrag = dt === 1 ? SHUTTLE_DRAG : Math.pow(SHUTTLE_DRAG, dt);
+  const moved: ShuttleState = {
+    ...s,
+    pos: { x: s.pos.x + s.vel.x * dt, y: s.pos.y + s.vel.y * dt },
+    vel: { x: s.vel.x * subDrag, y: s.vel.y * subDrag },
+    z: s.z + vz * dt,
+    vz,
+    deadReason: null,
+  };
+  const walled = applyWalls(moved, s);
+  return applyFloorBounce(walled, s, floorFriction);
+}
+
+/**
  * Slow-motion physics sub-step for the M-key serve preview. Advances the ball by ONE real
  * physics tick but with displacement and the gravity increment scaled by `slowmo` (< 1), so
  * the ball drifts at a readable pace. Velocity itself is kept at its true magnitude — only
