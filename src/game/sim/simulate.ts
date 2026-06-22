@@ -190,11 +190,15 @@ export function step(state: GameState, inA: InputFrame, inB: InputFrame): GameSt
   let shuttle = stepBall(state.shuttle);
 
   let hitstop = 0;
-  const r1 = resolveSwing(p1, inA, shuttle, 0, p2, state.rallyHitCount);
+  // Pass the pre-flight ball (state.shuttle) so resolveSwing sweeps this tick's path
+  // (prev → current) and a fast ball can't tunnel through the racket between ticks.
+  const r1 = resolveSwing(p1, inA, shuttle, 0, p2, state.rallyHitCount, state.shuttle);
   p1 = r1.player;
   shuttle = r1.shuttle;
   hitstop = Math.max(hitstop, r1.hitstop);
-  const r2 = resolveSwing(p2, inB, shuttle, 1, p1, state.rallyHitCount);
+  // p2 sweeps against the SAME pre-flight ball; if p1 already struck it this tick, the
+  // shuttle now carries a fresh launch and lastHitBy=0, so p2's own contact is independent.
+  const r2 = resolveSwing(p2, inB, shuttle, 1, p1, state.rallyHitCount, r1.player.justHit ? shuttle : state.shuttle);
   p2 = r2.player;
   shuttle = r2.shuttle;
   hitstop = Math.max(hitstop, r2.hitstop);
@@ -613,6 +617,23 @@ export function predictLanding(s: ShuttleState): ShuttleState {
 
 type SwingResult = { player: PlayerState; shuttle: ShuttleState; hitstop: number };
 
+/**
+ * Closest-approach distance from a point P to the segment A→B. Used to sweep the racket
+ * head against the ball's path THIS tick (prevPos → pos) instead of only its endpoint, so
+ * a fast ball that crosses the racket between ticks can't tunnel straight through it.
+ */
+function pointToSegmentDist(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const abx = bx - ax;
+  const aby = by - ay;
+  const lenSq = abx * abx + aby * aby;
+  if (lenSq < 1e-9) return Math.hypot(px - ax, py - ay); // degenerate segment = a point
+  let t = ((px - ax) * abx + (py - ay) * aby) / lenSq;
+  t = t < 0 ? 0 : t > 1 ? 1 : t; // clamp to the segment
+  const cx = ax + t * abx;
+  const cy = ay + t * aby;
+  return Math.hypot(px - cx, py - cy);
+}
+
 function resolveSwing(
   pl: PlayerState,
   input: InputFrame,
@@ -620,6 +641,7 @@ function resolveSwing(
   side: Side,
   _opponent: PlayerState,
   rallyHitCount = 0,
+  prevShuttle?: ShuttleState,
 ): SwingResult {
   const swinging = input.swing;
   const strokeId = input.stroke;
@@ -637,12 +659,18 @@ function resolveSwing(
   if (!shuttle.inPlay) return { player: pl, shuttle, hitstop: 0 };
 
   const hitFrom = diving ? pl.pos : racketCenter(pl.pos, side);
-  const dx = shuttle.pos.x - hitFrom.x;
-  const dy = shuttle.pos.y - hitFrom.y;
-  const dist = Math.sqrt(dx * dx + dy * dy);
+  // Swept hit test: measure the racket head against the ball's PATH this tick
+  // (prevPos → pos), not just its endpoint, so a fast ball can't pass through the racket
+  // between ticks. prevShuttle is the pre-stepBall ball; when absent (e.g. frozen-ball
+  // preview where the ball didn't fly) the segment collapses to the single point.
+  const prevPos = prevShuttle?.pos ?? shuttle.pos;
+  const dist = pointToSegmentDist(hitFrom.x, hitFrom.y, prevPos.x, prevPos.y, shuttle.pos.x, shuttle.pos.y);
   const reach = diving ? SWING_REACH + DIVE_REACH_BONUS : SWING_REACH;
   const reachZ = diving ? SWING_REACH_Z + DIVE_REACH_BONUS : SWING_REACH_Z;
-  const reachable = dist <= reach && shuttle.z <= reachZ;
+  // Height gate uses the LOWER of this tick's z endpoints so a ball dipping through the
+  // reachable band mid-tick still counts as reachable.
+  const minZ = prevShuttle ? Math.min(shuttle.z, prevShuttle.z) : shuttle.z;
+  const reachable = dist <= reach && minZ <= reachZ;
 
   // A dive return is always a scrappy flat "drive" save.
   const effectiveStroke: StrokeId = diving ? 'drive' : requestedStroke;
