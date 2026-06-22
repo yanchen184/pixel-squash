@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { stepShuttle, sampleServePath, predictLanding, type StepOpts } from '@/game/sim/simulate';
-import { FLOOR_FRICTION, type ShuttleState } from '@/data/gameState';
+import { step, stepShuttle, sampleServePath, predictLanding, type StepOpts } from '@/game/sim/simulate';
+import { NO_INPUT, type InputFrame } from '@/game/input/InputSource';
+import { FLOOR_FRICTION, createInitialState, type ShuttleState, type GameState } from '@/data/gameState';
 
 /**
  * AC1：虛線(sampleServePath) 與 live 逐 tick(stepShuttle) 必須用同一份物理。
@@ -97,5 +98,40 @@ describe('AC1: dashed preview vs live trajectory coherence', () => {
       if (s.deadReason != null) { landed = { ...s.pos }; break; }
     }
     expect(Math.hypot(predicted.x - landed.x, predicted.y - landed.y)).toBeLessThan(2);
+  });
+
+  it('AC3: live rally main-loop physics equals stepShuttle (no 5th divergent copy)', () => {
+    // The live main loop integrates via stepBall→applyWalls→applyFloorBounce(rallyFloorFriction).
+    // stepShuttle(dt=1, same friction) must produce the IDENTICAL ball state, otherwise the
+    // dashed guide (now on stepShuttle) and the real rally would still drift apart.
+    // We drive a free-flight ball (no swing input) through the real step() and compare.
+    const noInput: InputFrame = NO_INPUT;
+    // Build a practice rally state with a ball already in flight (no players near it).
+    let gs: GameState = { ...createInitialState(), gameMode: 'practice', phase: 'rally' };
+    gs = {
+      ...gs,
+      shuttle: {
+        ...gs.shuttle,
+        pos: { x: 300, y: 300 }, z: 200, vel: { x: 2, y: 4 }, vz: 2,
+        inPlay: true, lastHitBy: 0, hitFrontWall: true, bouncesSinceWall: 0,
+        lastWall: 'front', deadReason: null,
+      },
+      // park players far from the ball so resolveSwing never fires
+      p1: { ...gs.p1, pos: { x: 50, y: 950 } },
+      p2: { ...gs.p2, pos: { x: 600, y: 950 } },
+    };
+
+    // Mirror with stepShuttle (practice friction, matching rallyFloorFriction).
+    let mirror: ShuttleState = { ...gs.shuttle };
+    const opts: StepOpts = { dt: 1, floorFriction: 0.35 }; // PRACTICE_FLOOR_FRICTION
+
+    let maxErr = 0;
+    for (let i = 0; i < 30; i++) {
+      gs = step(gs, noInput, noInput);
+      mirror = stepShuttle(mirror, opts);
+      maxErr = Math.max(maxErr, Math.hypot(gs.shuttle.pos.x - mirror.pos.x, gs.shuttle.pos.y - mirror.pos.y));
+      if (gs.shuttle.deadReason != null) break;
+    }
+    expect(maxErr).toBeLessThan(0.001); // bit-for-bit equivalent
   });
 });
