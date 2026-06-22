@@ -28,7 +28,6 @@ export type AssetKey =
   | 'player_lateral'
   | 'player_backview'
   | 'opponent_core'
-  | 'court_glass'
   | 'audience_side'
   | 'player_movement'
   | 'player_actions_v2';
@@ -54,7 +53,6 @@ const ASSET_URLS: Record<AssetKey, string> = {
   player_lateral:          new URL('./generated/player/player_lateral_rear_sheet_v1.png',             import.meta.url).href,
   player_backview:         new URL('./generated/player/player_backview_sheet_v1.png',                 import.meta.url).href,
   opponent_core:           new URL('./generated/player/opponent_core_moves_sheet_v1.png',             import.meta.url).href,
-  court_glass:             new URL('./generated/court/court_glass_foreground_v1.png',                  import.meta.url).href,
   audience_side:           new URL('./generated/audience/audience_side_v2.png',                        import.meta.url).href,
   player_movement:         new URL('./generated/player/player_movement_sheet_v1.png',                  import.meta.url).href,
   player_actions_v2:       new URL('./generated/player/player_actions_front_v1_sheet_debg.png',          import.meta.url).href,

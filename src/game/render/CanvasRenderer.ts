@@ -35,6 +35,7 @@ import {
   OPPONENT_CROPS,
   type Crop,
 } from '@/assets/assetLoader';
+import { drawGalleryGlass } from '@/game/render/galleryGlass';
 import { SoundEngine } from '@/game/audio/SoundEngine';
 
 /**
@@ -681,44 +682,9 @@ export class CanvasRenderer {
    */
   private drawBackGlassFront(): void {
     const ctx = this.ctx;
-    const glassImg = getImage('court_glass');
-    if (glassImg && !this.hasCourtArt()) {
-      // Only draw glass overlay when no art is loaded — art already has the back wall
-      ctx.drawImage(glassImg, 0, 0, GAME_WIDTH, GAME_HEIGHT);
-    } else if (!glassImg) {
-      // Procedural fallback until the PNG loads.
-      const { width, depth } = COURT;
-      const h = WALL_HEIGHT;
-      const bbl = this.pt(0, depth, 0);
-      const bfl = this.pt(0, depth, h);
-      const bfr = this.pt(width, depth, h);
-      const bbr = this.pt(width, depth, 0);
-      const bgGrad = ctx.createLinearGradient(0, bfl.y, 0, bbl.y);
-      bgGrad.addColorStop(0, 'rgba(20,38,50,0.45)');
-      bgGrad.addColorStop(0.5, 'rgba(15,28,38,0.30)');
-      bgGrad.addColorStop(1, 'rgba(8,14,20,0.18)');
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(bbl.x, bbl.y);
-      ctx.lineTo(bfl.x, bfl.y);
-      ctx.lineTo(bfr.x, bfr.y);
-      ctx.lineTo(bbr.x, bbr.y);
-      ctx.closePath();
-      ctx.fillStyle = bgGrad;
-      ctx.fill();
-      const audGrad = ctx.createLinearGradient(0, bfl.y, 0, bbl.y);
-      audGrad.addColorStop(0, 'rgba(30,55,65,0.45)');
-      audGrad.addColorStop(1, 'rgba(10,18,22,0.0)');
-      ctx.beginPath();
-      ctx.moveTo(bbl.x, bbl.y);
-      ctx.lineTo(bfl.x, bfl.y);
-      ctx.lineTo(bfr.x, bfr.y);
-      ctx.lineTo(bbr.x, bbr.y);
-      ctx.closePath();
-      ctx.fillStyle = audGrad;
-      ctx.fill();
-      ctx.restore();
-    }
+    // Camera-side glass gallery wall, painted procedurally (the generated glass PNG baked a
+    // fake transparency checkerboard into its pixels). Shared with the practice renderer.
+    drawGalleryGlass(ctx, GAME_WIDTH, GAME_HEIGHT);
 
     if (!this.hasCourtArt()) {
       // Back-wall out line — only as gameplay reference when no baked art.

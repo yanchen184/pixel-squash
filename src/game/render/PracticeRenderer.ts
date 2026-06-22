@@ -42,6 +42,7 @@ import { AIInput, type Difficulty } from '@/game/input/AIInput';
 import { eventBus } from '@/game/eventBus';
 import { SoundEngine } from '@/game/audio/SoundEngine';
 import { loadAssets, getImage, PLAYER_BACKVIEW_CROPS, PLAYER_ACTIONS_V2_CROPS, OPPONENT_CROPS } from '@/assets/assetLoader';
+import { drawGalleryGlass } from '@/game/render/galleryGlass';
 
 export const GAME_WIDTH = 1280;
 export const GAME_HEIGHT = 720;
@@ -533,13 +534,6 @@ export class FrontWallRenderer {
       // ("圖與現場元素疊不起來"). With the art present we keep ONE set of lines
       // (the image's) and only overlay dynamic gameplay geometry below.
       this.drawCourtBaseArt();
-      // Re-add the back-wall GLASS sheen on top of the art. court_bg_no_glass bakes the
-      // audience + neon walls but deliberately omits the glass curtain (its name says so),
-      // so after c6f0ccd switched to the art backdrop the glass back wall vanished
-      // ("背後的玻璃牆壁不見了"). We overlay only a translucent glass tint + reflection band
-      // aligned to the art's back-wall trapezoid — no procedural lines/audience, so it can't
-      // re-introduce the double-line ghosting that made us drop drawGlassBackWall here.
-      this.drawCourtGlassOverlay();
     } else {
       this.drawBg();
       this.drawSideWalls();
@@ -555,6 +549,12 @@ export class FrontWallRenderer {
     } else {
       this.drawPlayer(s.p1);
     }
+    // Back glass-gallery wall — the FOREGROUND layer, on the CAMERA side (lower screen,
+    // behind the players). The SCREEN itself is the solid front wall (top); the glass is
+    // the back wall the audience watches through. Drawn AFTER the players so a competitor
+    // deep in the court reads as "behind the glass" — solid wall behind, glass in front.
+    // Mirrors CanvasRenderer.drawBackGlassFront so practice + match share the layer.
+    if (courtArt) this.drawCourtGlassOverlay();
     if (!courtArt) this.drawFrontWallLines();
     this.drawPreviewPath(s);
     this.drawPersistentTrail();
@@ -610,67 +610,16 @@ export class FrontWallRenderer {
   }
 
   /**
-   * Translucent glass curtain over the art's back wall. The court_bg art renders the audience
-   * + scoreboard behind a glass back wall, but with no glass sheen it reads as an open hole.
-   * We overlay a faint blue glass tint plus a diagonal reflection streak across the back-wall
-   * trapezoid so it reads as "looking THROUGH glass at the crowd" again — the depth cue that
-   * went missing. Ratios are tuned to the baked art's back-wall region (x≈30–70%, y≈9–41% of
-   * the 1280×720 frame). Pure overlay: no lines/text, so it cannot re-create the ghosting that
-   * forced drawGlassBackWall to be skipped under the art backdrop.
+   * Back glass-gallery wall, on the CAMERA side (the lower band of the frame, behind the
+   * players). The SCREEN itself is the solid front wall the ball hits (top of frame); this
+   * glass is the OTHER wall — the gallery the audience watches through ("壁球的玻璃在另外那邊").
+   * Painted procedurally rather than blitted from a PNG: the generated glass sheet baked a
+   * fake transparency checkerboard into its pixels, which read as an unloaded placeholder.
+   * A clean translucent pane + sheen + metal mullions reads as real glass and stays in our
+   * control. Drawn AFTER the players so a deep competitor reads as behind the glass.
    */
   private drawCourtGlassOverlay(): void {
-    const ctx = this.ctx;
-    // Back-wall trapezoid in the baked art (narrower at top — the wall recedes).
-    const topY = GAME_HEIGHT * 0.115;
-    const botY = GAME_HEIGHT * 0.405;
-    const topL = GAME_WIDTH * 0.330, topR = GAME_WIDTH * 0.670;
-    const botL = GAME_WIDTH * 0.300, botR = GAME_WIDTH * 0.700;
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(topL, topY);
-    ctx.lineTo(topR, topY);
-    ctx.lineTo(botR, botY);
-    ctx.lineTo(botL, botY);
-    ctx.closePath();
-    ctx.clip();
-
-    // Cool glass tint, denser toward the top where the glass catches more light.
-    const tint = ctx.createLinearGradient(0, topY, 0, botY);
-    tint.addColorStop(0, 'rgba(70,120,165,0.30)');
-    tint.addColorStop(0.55, 'rgba(40,80,120,0.16)');
-    tint.addColorStop(1, 'rgba(25,55,85,0.08)');
-    ctx.fillStyle = tint;
-    ctx.fillRect(0, topY, GAME_WIDTH, botY - topY);
-
-    // Diagonal reflection streak — the giveaway that there's a glass pane there.
-    const sheen = ctx.createLinearGradient(topL, topY, botR, botY);
-    sheen.addColorStop(0.0, 'rgba(180,210,235,0)');
-    sheen.addColorStop(0.42, 'rgba(180,210,235,0)');
-    sheen.addColorStop(0.5, 'rgba(190,220,240,0.22)');
-    sheen.addColorStop(0.58, 'rgba(180,210,235,0)');
-    sheen.addColorStop(1.0, 'rgba(180,210,235,0)');
-    ctx.fillStyle = sheen;
-    ctx.fillRect(0, topY, GAME_WIDTH, botY - topY);
-    ctx.restore();
-
-    // Thin glass frame edges so the pane has a defined border (no fill bleed past it).
-    ctx.save();
-    ctx.strokeStyle = 'rgba(120,170,210,0.45)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(topL, topY);
-    ctx.lineTo(topR, topY);
-    ctx.lineTo(botR, botY);
-    ctx.lineTo(botL, botY);
-    ctx.closePath();
-    ctx.stroke();
-    // Centre mullion (the glass door split down the middle of a squash back wall).
-    ctx.beginPath();
-    ctx.moveTo(GAME_WIDTH * 0.5, topY);
-    ctx.lineTo(GAME_WIDTH * 0.5, botY);
-    ctx.stroke();
-    ctx.restore();
+    drawGalleryGlass(this.ctx, GAME_WIDTH, GAME_HEIGHT);
   }
 
   private drawBg(): void {
