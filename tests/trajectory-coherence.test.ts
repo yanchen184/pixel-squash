@@ -45,4 +45,40 @@ describe('AC1: dashed preview vs live trajectory coherence', () => {
     }
     expect(maxErr).toBeLessThan(1);
   });
+
+  it('matches through a front-wall bounce within 1px', () => {
+    const start = { x: 320, y: 600 }; // 場中央，避開側牆邊界
+    const startZ = 90;
+    const vel = { x: 0, y: -20 }; // 快速直衝前牆
+    const vz = 8; // z 在 y=0 時落在 valid zone [50,480] → 記到 'front' 事件
+    const dashed = sampleServePath(start, startZ, vel, vz, 1, FLOOR_FRICTION);
+    const sawFrontWall = dashed.some(d => d.wall === 'front');
+
+    // Build the live trajectory tick-by-tick. Because dashed mixes per-tick samples with
+    // inserted wall-event points, we can't compare by index. Instead: every plain (non-event)
+    // dashed sample must lie within 1px of SOME live tick — they share one integrator, so the
+    // dashed sample points must fall exactly on the live flight path.
+    const live: { x: number; y: number }[] = [];
+    let s = freshShuttle(start, startZ, vel, vz);
+    const opts: StepOpts = { dt: 1, floorFriction: FLOOR_FRICTION };
+    for (let i = 0; i < 120; i++) {
+      s = stepShuttle(s, opts);
+      live.push({ x: s.pos.x, y: s.pos.y });
+      if (s.deadReason != null || s.bouncesSinceWall >= 2) break;
+    }
+
+    let maxErr = Infinity;
+    let checked = 0;
+    for (let di = 1; di < dashed.length; di++) { // skip dashed[0]: it's the t=0 start; live begins at t=1
+      const d = dashed[di];
+      if (d.wall) continue; // skip labelled event points (y locked to 0/EPS)
+      // nearest live tick to this dashed sample
+      const nearest = Math.min(...live.map(p => Math.hypot(p.x - d.x, p.y - d.y)));
+      maxErr = checked === 0 ? nearest : Math.max(maxErr, nearest);
+      checked++;
+    }
+    expect(sawFrontWall).toBe(true);
+    expect(checked).toBeGreaterThan(5); // sanity: actually compared points
+    expect(maxErr).toBeLessThan(1);
+  });
 });

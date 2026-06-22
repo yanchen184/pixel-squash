@@ -933,73 +933,54 @@ export function sampleServePath(
   floorFriction: number = FLOOR_FRICTION,
 ): PathPoint[] {
   const points: PathPoint[] = [{ x: startPos.x, y: startPos.y, z: startZ }];
-  let x = startPos.x, y = startPos.y, z = startZ;
-  let vx = vel.x, vy = vel.y, curVz = vz;
-  let prevY = y, prevZ = z;
-  let floorHits = 0;
+  // Integrate through the SAME stepShuttle the live rally uses, so the dashed guide and
+  // the real ball cannot diverge. Wall/floor events are read off the returned state to
+  // place the labelled PathPoints the renderer draws; tin/out get their dedicated visuals.
+  let s: ShuttleState = {
+    pos: { x: startPos.x, y: startPos.y }, z: startZ,
+    vel: { x: vel.x, y: vel.y }, vz,
+    inPlay: true, lastHitBy: 0, bouncesSinceWall: 0,
+    hitFrontWall: false, lastWall: null, deadReason: null,
+    landing: null, landingEta: 0,
+  };
+  const opts: StepOpts = { dt: 1, floorFriction };
   const MAX = 400;
   for (let t = 1; t <= MAX; t++) {
-    curVz -= GRAVITY;
-    x += vx;
-    y += vy;
-    z += curVz;
-    vx *= SHUTTLE_DRAG;
-    vy *= SHUTTLE_DRAG;
+    const prevWall = s.lastWall;
+    const prevBounces = s.bouncesSinceWall;
+    s = stepShuttle(s, opts);
 
-    // Front wall
-    if (prevY > 0 && y <= 0) {
-      const span = prevY - y;
-      const frac = span > 1e-6 ? prevY / span : 0;
-      const hitZ = prevZ + (z - prevZ) * frac;
-      if (hitZ > FRONT_OUT_HEIGHT) {
-        // Above the out line → OUT. Don't reflect: let the ball sail over the front
-        // wall and out of court, then end the preview (the shot is a fault).
-        points.push({ x, y: 0, z: hitZ, wall: 'out' });
-        for (let k = 1; k <= 8; k++) {
-          curVz -= GRAVITY;
-          x += vx; y -= Math.abs(vy); z += curVz; // keep flying forward (out) + arc down
-          points.push({ x, y, z: Math.max(z, 0) });
-        }
-        break;
+    // OUT: ball cleared the out line. stepShuttle already reflected it (and stamped
+    // deadReason='out'); for the guide we instead let it sail forward + arc down so the
+    // player sees the shot leave the court, then end. Mirrors the old preview visual.
+    if (s.deadReason === 'out') {
+      points.push({ x: s.pos.x, y: 0, z: s.z, wall: 'out' });
+      let { x: ox, y: oy } = s.pos; let oz = s.z; let ovz = s.vz;
+      const ovx = s.vel.x; const ovy = Math.abs(s.vel.y);
+      for (let k = 1; k <= 8; k++) {
+        ovz -= GRAVITY;
+        ox += ovx; oy -= ovy; oz += ovz; // keep flying forward (out) + arc down
+        points.push({ x: ox, y: oy, z: Math.max(oz, 0) });
       }
-      if (hitZ < TIN_HEIGHT) {
-        // Below the tin → struck the board (dead). Mark + dribble + end the preview.
-        points.push({ x, y: 0, z: hitZ, wall: 'tin' });
-        break;
-      }
-      points.push({ x, y: 0, z: hitZ, wall: 'front' });
-      vy = Math.abs(vy) * FRONT_WALL_BOUNCE;
-      y = EPS;
+      break;
     }
-    // Back wall
-    if (y >= COURT.depth) {
-      points.push({ x, y: COURT.depth, z, wall: 'back' });
-      vy = -Math.abs(vy) * WALL_BOUNCE;
-      y = COURT.depth - EPS;
+    if (s.deadReason === 'tin') {
+      points.push({ x: s.pos.x, y: 0, z: s.z, wall: 'tin' });
+      break;
     }
-    // Side walls
-    if (x <= 0) {
-      points.push({ x: 0, y, z, wall: 'left' });
-      vx = Math.abs(vx) * WALL_BOUNCE;
-      x = EPS;
-    } else if (x >= COURT.width) {
-      points.push({ x: COURT.width, y, z, wall: 'right' });
-      vx = -Math.abs(vx) * WALL_BOUNCE;
-      x = COURT.width - EPS;
+
+    // Wall event: lastWall changed → drop a labelled point at the contact.
+    if (s.lastWall !== prevWall && s.lastWall != null) {
+      points.push({ x: s.pos.x, y: s.pos.y, z: s.z, wall: s.lastWall });
     }
-    // Floor: first bounce rebounds (FLOOR_BOUNCE); the second ends the rally.
-    if (z <= 0 && curVz <= 0) {
-      floorHits++;
-      points.push({ x, y, z: 0, wall: 'floor' });
-      if (floorHits >= 2) break;
-      curVz = Math.abs(curVz) * FLOOR_BOUNCE;
-      vx *= floorFriction; // shed horizontal skid on the rebound (mirror live physics)
-      vy *= floorFriction;
-      z = EPS;
+    // Floor event: a bounce accrued → drop a floor point; 2nd bounce or any death ends it.
+    if (s.bouncesSinceWall > prevBounces) {
+      points.push({ x: s.pos.x, y: s.pos.y, z: 0, wall: 'floor' });
+      if (s.bouncesSinceWall >= 2 || s.deadReason != null) break;
     }
-    if (t % sampleEvery === 0) points.push({ x, y, z });
-    prevY = y;
-    prevZ = z;
+    if (s.deadReason != null) break;
+
+    if (t % sampleEvery === 0) points.push({ x: s.pos.x, y: s.pos.y, z: s.z });
   }
   return points;
 }
