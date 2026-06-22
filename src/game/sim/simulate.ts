@@ -592,57 +592,23 @@ function previewPhysicsStep(s: ShuttleState, slowmo: number): ShuttleState {
  * FIRST floor landing point (and ticks to it). Pure look-ahead; never mutates the live
  * ball. The renderer draws a shrinking marker here and the AI runs to it.
  */
-function predictLanding(s: ShuttleState): ShuttleState {
+export function predictLanding(s: ShuttleState): ShuttleState {
   if (!s.inPlay) return { ...s, landing: null, landingEta: 0 };
-  let x = s.pos.x;
-  let y = s.pos.y;
-  let z = s.z;
-  let vx = s.vel.x;
-  let vy = s.vel.y;
-  let vz = s.vz;
-  let prevY = y;
-  let prevZ = z;
-  let hitFront = s.hitFrontWall;
-  let t = 0;
+  // Forward-integrate through the SAME stepShuttle the live rally uses, so the landing
+  // marker / AI run-to point can't disagree with where the ball really lands. Uses match
+  // FLOOR_FRICTION (preserves prior behaviour; AI run-to is a match-mode concern).
+  let cur = { ...s };
+  const opts: StepOpts = { dt: 1, floorFriction: FLOOR_FRICTION };
   const MAX = 300; // 5s cap
-  while (t < MAX) {
-    vz -= GRAVITY;
-    x += vx;
-    y += vy;
-    z += vz;
-    vx *= SHUTTLE_DRAG;
-    vy *= SHUTTLE_DRAG;
-    // Front wall
-    if (prevY > 0 && y <= 0) {
-      const span = prevY - y;
-      const tt = span > 1e-6 ? prevY / span : 0;
-      const hitZ = prevZ + (z - prevZ) * tt;
-      if (hitZ >= TIN_HEIGHT && hitZ <= FRONT_OUT_HEIGHT) hitFront = true;
-      vy = Math.abs(vy) * FRONT_WALL_BOUNCE;
-      y = EPS;
+  for (let t = 1; t <= MAX; t++) {
+    const prevBounces = cur.bouncesSinceWall;
+    cur = stepShuttle(cur, opts);
+    // First floor bounce after a legal shot (or any death) is the spot the marker/AI targets.
+    if (cur.bouncesSinceWall > prevBounces || cur.deadReason != null) {
+      return { ...s, landing: { x: cur.pos.x, y: cur.pos.y }, landingEta: t };
     }
-    if (y >= COURT.depth) {
-      vy = -Math.abs(vy) * WALL_BOUNCE;
-      y = COURT.depth - EPS;
-    }
-    if (x <= 0) {
-      vx = Math.abs(vx) * WALL_BOUNCE;
-      x = EPS;
-    } else if (x >= COURT.width) {
-      vx = -Math.abs(vx) * WALL_BOUNCE;
-      x = COURT.width - EPS;
-    }
-    // Floor landing
-    if (z <= 0 && vz <= 0) {
-      if (hitFront) break; // first landing after a legal shot — this is the spot
-      // a fault landing; still report the spot
-      break;
-    }
-    prevY = y;
-    prevZ = z;
-    t++;
   }
-  return { ...s, landing: { x, y }, landingEta: t };
+  return { ...s, landing: { x: cur.pos.x, y: cur.pos.y }, landingEta: MAX };
 }
 
 type SwingResult = { player: PlayerState; shuttle: ShuttleState; hitstop: number };

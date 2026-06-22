@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stepShuttle, sampleServePath, type StepOpts } from '@/game/sim/simulate';
+import { stepShuttle, sampleServePath, predictLanding, type StepOpts } from '@/game/sim/simulate';
 import { FLOOR_FRICTION, type ShuttleState } from '@/data/gameState';
 
 /**
@@ -80,5 +80,22 @@ describe('AC1: dashed preview vs live trajectory coherence', () => {
     expect(sawFrontWall).toBe(true);
     expect(checked).toBeGreaterThan(5); // sanity: actually compared points
     expect(maxErr).toBeLessThan(1);
+  });
+
+  it('AC2: predictLanding lands where stepShuttle actually lands (<2px)', () => {
+    const base = freshShuttle({ x: 400, y: 200 }, 150, { x: 1, y: 6 }, 3, true, 'front');
+    const predicted = predictLanding(base).landing!;
+
+    // 用 stepShuttle 跑到第一次地板落點
+    let s = { ...base };
+    const opts: StepOpts = { dt: 1, floorFriction: FLOOR_FRICTION };
+    let landed = { ...s.pos };
+    for (let i = 0; i < 300; i++) {
+      const prevB = s.bouncesSinceWall;
+      s = stepShuttle(s, opts);
+      if (s.bouncesSinceWall > prevB) { landed = { ...s.pos }; break; }
+      if (s.deadReason != null) { landed = { ...s.pos }; break; }
+    }
+    expect(Math.hypot(predicted.x - landed.x, predicted.y - landed.y)).toBeLessThan(2);
   });
 });
