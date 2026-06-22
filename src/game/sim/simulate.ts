@@ -582,23 +582,9 @@ export function stepShuttle(s: ShuttleState, opts: StepOpts): ShuttleState {
  */
 function previewPhysicsStep(s: ShuttleState, slowmo: number): ShuttleState {
   if (!s.inPlay) return s;
-  const vz = s.vz - GRAVITY * slowmo;
-  // Bleed horizontal speed at the SAME per-real-tick rate as sampleServePath / the live rally.
-  // Drag is multiplicative, so applying SHUTTLE_DRAG once per slowed sub-step (≈ 1/slowmo
-  // sub-steps per real tick) would compound to SHUTTLE_DRAG^(1/slowmo) per tick — far more loss
-  // than the dashed guide line computes, making the ball curve short and drift off the dashes.
-  // Raise it to the slowmo power so 1/slowmo sub-steps multiply back to exactly SHUTTLE_DRAG.
-  const subDrag = Math.pow(SHUTTLE_DRAG, slowmo);
-  const moved: ShuttleState = {
-    ...s,
-    pos: { x: s.pos.x + s.vel.x * slowmo, y: s.pos.y + s.vel.y * slowmo },
-    vel: { x: s.vel.x * subDrag, y: s.vel.y * subDrag },
-    z: s.z + vz * slowmo,
-    vz,
-    deadReason: null,
-  };
-  const walled = applyWalls(moved, s);
-  return applyFloorBounce(walled, s, PRACTICE_FLOOR_FRICTION);
+  // Delegates to the single source of truth so the preview, the dashed guide and the live
+  // rally share one integrator (drag is raised to the slowmo power inside stepShuttle).
+  return stepShuttle(s, { dt: slowmo, floorFriction: PRACTICE_FLOOR_FRICTION });
 }
 
 /**
