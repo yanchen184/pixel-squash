@@ -117,9 +117,9 @@
     <div class="sub">像素壁球 · TypeScript + React + 原生 Canvas 2D（無遊戲引擎）· 決定性 60Hz 純函式 sim</div>
     <div class="meta-row">
       <span class="chip">驗收 <b>25 / 25 ✅</b></span>
-      <span class="chip">單元+物理測試 <b>92 / 92 綠</b></span>
+      <span class="chip">單元+物理測試 <b>102 / 102 綠</b></span>
       <span class="chip">線上 <a href="https://pixel-squash.web.app" target="_blank">pixel-squash.web.app</a></span>
-      <span class="chip">最後更新 <b id="updated">2026-06-21</b></span>
+      <span class="chip">最後更新 <b id="updated">2026-06-22</b></span>
     </div>
   </div>
 </header>
@@ -156,6 +156,8 @@
         <ul>
           <li><b>PAR-11 計分</b> <span>11 分制、需淨勝 2 分</span></li>
           <li><b>四牆 3D 反彈</b> <span>前牆/側牆/地板各自保留率</span></li>
+          <li><b>揮拍掃動碰撞</b> <span>球拍對球的掃動體積逐 tick 判定，快球不再穿拍（SWING_REACH 不變）</span></li>
+          <li><b>物理單一真相源</b> <span>虛線 preview 與 live 球同一 stepShuttle，軌跡不分岔（&lt;1px）</span></li>
           <li><b>死球判定</b> <span>tin（前牆 tin 以下）/ 二次落地 / 出界</span></li>
           <li><b>非法球自動降級</b> <span>低球殺球 → 自動變抽球</span></li>
           <li><b>揮拍 timing 分級</b> <span>perfect / good / early / late，控前牆落點</span></li>
@@ -175,6 +177,7 @@
         <ul>
           <li><b>真實場地圖</b> <span>觀眾席+霓虹牆+地板透視線（非程序裸線）</span></li>
           <li><b>透視縮放</b> <span>球大小隨深度遠近縮放（近 22px / 遠 4px）</span></li>
+          <li><b>深度非線性投影</b> <span>~1/z 透視：球往深處飛近快遠慢，殺掉等速飄移感（端點固定不破美術校正）</span></li>
           <li><b>撞牆回饋</b> <span>凍幀 hit-stop + 畫面抖動 + 顏色 flash + 音效</span></li>
           <li><b>觀眾歡呼</b> <span>每 10 拍精彩對拍 / 魚躍救球觸發歡呼</span></li>
         </ul>
@@ -241,8 +244,8 @@
 
     <div class="layer-row">
       <span class="layer-tag l1">L1</span>
-      <div class="layer-body"><b>單元 + 物理（vitest run）— 92 / 92 綠</b><br>
-      <span class="s">決定性、發球流程、PAR 計分、壁球不變量、timing/hit-stop、6 球路 profile + 牆反彈守恆、量化物理體檢、練習模式對打/凍結/球路/死球回饋。</span></div>
+      <div class="layer-body"><b>單元 + 物理（vitest run）— 102 / 102 綠</b><br>
+      <span class="s">決定性、發球流程、PAR 計分、壁球不變量、timing/hit-stop、6 球路 profile + 牆反彈守恆、量化物理體檢、練習模式對打/凍結/球路/死球回饋、軌跡虛線一致性、揮拍掃動碰撞、深度非線性投影。</span></div>
     </div>
     <div class="tests" style="margin-bottom:16px;">
       <div class="test-file"><span class="name">simulate.test.ts</span><span class="count">20 ✅</span></div>
@@ -252,8 +255,11 @@
       <div class="test-file"><span class="name">strokes.test.ts</span><span class="count">8 ✅</span></div>
       <div class="test-file"><span class="name">practice-strokes.test.ts</span><span class="count">7 ✅</span></div>
       <div class="test-file"><span class="name">practice-freeze-step.test.ts</span><span class="count">7 ✅</span></div>
-      <div class="test-file"><span class="name">practice-fault-feedback.test.ts</span><span class="count">4 ✅</span></div>
       <div class="test-file"><span class="name">serve-trajectory.test.ts</span><span class="count">4 ✅</span></div>
+      <div class="test-file"><span class="name">practice-fault-feedback.test.ts</span><span class="count">4 ✅</span></div>
+      <div class="test-file"><span class="name">trajectory-coherence.test.ts</span><span class="count">4 ✅</span></div>
+      <div class="test-file"><span class="name">swing-sweep.test.ts</span><span class="count">3 ✅</span></div>
+      <div class="test-file"><span class="name">projection-depth.test.ts</span><span class="count">3 ✅</span></div>
       <div class="test-file"><span class="name">practice-rally.test.ts</span><span class="count">2 ✅</span></div>
     </div>
 

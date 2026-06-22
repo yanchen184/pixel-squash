@@ -67,7 +67,14 @@ export function makeProjector(proj: CourtProjection = DEFAULT_PROJECTION): Proje
   const { farHalf, nearHalf, centerX } = proj;
 
   function toScreen(p: Vec2, height = 0): Vec2 {
-    const d = clamp01(p.y / COURT.depth); // 0 front(far) … 1 back(near) — DEPTH along logic y
+    // Perspective-correct depth remap (design §3.5). The camera is behind the players, so
+    // the back of the court (linear d=1) is NEAR and the front wall (d=0) is FAR. Real
+    // perspective is non-linear (~1/z): equal world depth-steps cover MORE screen near the
+    // camera and LESS as they recede. We bend the interior of d while pinning both endpoints
+    // (d=0→0, d=1→1) so the calibrated trapezoid anchors (farY/nearY, farHalf/nearHalf) are
+    // untouched — only the depth MOTION changes (near fast → far slow), killing the floaty
+    // look where a ball flying into the room moved at a constant on-screen pace.
+    const d = perspectiveDepth(clamp01(p.y / COURT.depth));
     const cx = clamp01(p.x / COURT.width); // 0 left … 1 right — ACROSS the room
     const half = farHalf + (nearHalf - farHalf) * d; // wider toward the back/bottom
     const y = topY + (botY - topY) * d;
@@ -79,12 +86,26 @@ export function makeProjector(proj: CourtProjection = DEFAULT_PROJECTION): Proje
   }
 
   function depthScale(y: number): number {
-    const d = clamp01(y / COURT.depth);
+    // Same perspective remap as toScreen so a sprite's SIZE tracks the same non-linear
+    // depth its POSITION does (otherwise a ball's x-spread and its scale disagree at a
+    // given y). Endpoints pinned, so front-wall and back-wall scales are unchanged.
+    const d = perspectiveDepth(clamp01(y / COURT.depth));
     const t = farHalf / nearHalf; // smaller at the top (front wall, far)
     return t + (1 - t) * d;
   }
 
   return { toScreen, depthScale };
+}
+
+/**
+ * Bend a linear depth d ∈ [0,1] into a perspective-correct one, pinning both endpoints
+ * (0→0, 1→1). With CAM_PULL > 1 the curve rises slowly near the front wall (far) and
+ * steeply toward the back (near the camera), so equal world depth-steps produce shrinking
+ * on-screen steps as the object recedes — the ~1/z feel of real perspective.
+ */
+const CAM_PULL = 2.2;
+function perspectiveDepth(d: number): number {
+  return d / (d + (1 - d) * CAM_PULL);
 }
 
 function clamp01(v: number): number {

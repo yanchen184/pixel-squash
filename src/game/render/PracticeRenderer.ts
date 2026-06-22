@@ -169,6 +169,8 @@ export class FrontWallRenderer {
   private localInput: LocalInput;
   private gameMode: GameMode;
   private rafId = 0;
+  private intervalId = 0; // background-tab fallback ticker (rAF is throttled/frozen when hidden)
+  private visHandler: (() => void) | null = null;
   private lastTs = 0;
   private assetsReady = false;
 
@@ -220,11 +222,31 @@ export class FrontWallRenderer {
 
   start(): void {
     this.lastTs = performance.now();
-    this.rafId = requestAnimationFrame(this.loop);
+    // Dual-track loop: foreground tab uses requestAnimationFrame (smooth 60fps); a hidden
+    // tab freezes rAF, so we fall back to setInterval(16ms) so the sim keeps ticking. This
+    // is what lets a headless/MCP driver (whose tab is backgrounded) test the game. The two
+    // tracks never run together — visibilitychange swaps between them.
+    this.visHandler = () => this.applyLoopMode();
+    document.addEventListener('visibilitychange', this.visHandler);
+    this.applyLoopMode();
+  }
+
+  /** Run rAF when visible, setInterval(16ms) when hidden; ensure only one ticker is active. */
+  private applyLoopMode(): void {
+    cancelAnimationFrame(this.rafId);
+    if (this.intervalId) { clearInterval(this.intervalId); this.intervalId = 0; }
+    this.lastTs = performance.now();
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      this.intervalId = window.setInterval(() => this.loop(performance.now()), 16);
+    } else {
+      this.rafId = requestAnimationFrame(this.loop);
+    }
   }
 
   stop(): void {
     cancelAnimationFrame(this.rafId);
+    if (this.intervalId) { clearInterval(this.intervalId); this.intervalId = 0; }
+    if (this.visHandler) { document.removeEventListener('visibilitychange', this.visHandler); this.visHandler = null; }
     this.localInput.dispose();
     eventBus.clear();
   }
@@ -296,7 +318,9 @@ export class FrontWallRenderer {
     this.lastTs = ts;
     this.runner.update(delta);
     this.draw();
-    this.rafId = requestAnimationFrame(this.loop);
+    // Only the rAF track re-schedules itself here; the hidden-tab setInterval track
+    // re-fires on its own timer, so re-arming rAF would double-tick when visible.
+    if (!this.intervalId) this.rafId = requestAnimationFrame(this.loop);
   };
 
   /**

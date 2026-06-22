@@ -190,11 +190,15 @@ export function step(state: GameState, inA: InputFrame, inB: InputFrame): GameSt
   let shuttle = stepBall(state.shuttle);
 
   let hitstop = 0;
-  const r1 = resolveSwing(p1, inA, shuttle, 0, p2, state.rallyHitCount);
+  // Pass the pre-flight ball (state.shuttle) so resolveSwing sweeps this tick's path
+  // (prev → current) and a fast ball can't tunnel through the racket between ticks.
+  const r1 = resolveSwing(p1, inA, shuttle, 0, p2, state.rallyHitCount, state.shuttle);
   p1 = r1.player;
   shuttle = r1.shuttle;
   hitstop = Math.max(hitstop, r1.hitstop);
-  const r2 = resolveSwing(p2, inB, shuttle, 1, p1, state.rallyHitCount);
+  // p2 sweeps against the SAME pre-flight ball; if p1 already struck it this tick, the
+  // shuttle now carries a fresh launch and lastHitBy=0, so p2's own contact is independent.
+  const r2 = resolveSwing(p2, inB, shuttle, 1, p1, state.rallyHitCount, r1.player.justHit ? shuttle : state.shuttle);
   p2 = r2.player;
   shuttle = r2.shuttle;
   hitstop = Math.max(hitstop, r2.hitstop);
@@ -544,6 +548,34 @@ function applyFloorBounce(
 }
 
 /**
+ * 唯一的球體前進一步。所有路徑（live rally / M-preview / 落點預測 / 虛線取樣）都呼叫它，
+ * 不准有第二份積分。dt<1 = 慢動作子步（位移與重力增量按 dt 縮放，阻力用 SHUTTLE_DRAG^dt
+ * 確保 1/dt 個子步乘回來剛好等於每 tick 的 SHUTTLE_DRAG）。牆/地板反彈重用既有
+ * applyWalls / applyFloorBounce，所以收斂後虛線與 live 在數學上不可能分岔。
+ */
+export interface StepOpts {
+  dt: number;            // 子步比例：live=1，slowmo preview=PRACTICE_PREVIEW_SLOWMO
+  floorFriction: number; // live=FLOOR_FRICTION，practice=PRACTICE_FLOOR_FRICTION
+}
+
+export function stepShuttle(s: ShuttleState, opts: StepOpts): ShuttleState {
+  if (!s.inPlay) return s;
+  const { dt, floorFriction } = opts;
+  const vz = s.vz - GRAVITY * dt;
+  const subDrag = dt === 1 ? SHUTTLE_DRAG : Math.pow(SHUTTLE_DRAG, dt);
+  const moved: ShuttleState = {
+    ...s,
+    pos: { x: s.pos.x + s.vel.x * dt, y: s.pos.y + s.vel.y * dt },
+    vel: { x: s.vel.x * subDrag, y: s.vel.y * subDrag },
+    z: s.z + vz * dt,
+    vz,
+    deadReason: null,
+  };
+  const walled = applyWalls(moved, s);
+  return applyFloorBounce(walled, s, floorFriction);
+}
+
+/**
  * Slow-motion physics sub-step for the M-key serve preview. Advances the ball by ONE real
  * physics tick but with displacement and the gravity increment scaled by `slowmo` (< 1), so
  * the ball drifts at a readable pace. Velocity itself is kept at its true magnitude — only
@@ -554,23 +586,9 @@ function applyFloorBounce(
  */
 function previewPhysicsStep(s: ShuttleState, slowmo: number): ShuttleState {
   if (!s.inPlay) return s;
-  const vz = s.vz - GRAVITY * slowmo;
-  // Bleed horizontal speed at the SAME per-real-tick rate as sampleServePath / the live rally.
-  // Drag is multiplicative, so applying SHUTTLE_DRAG once per slowed sub-step (≈ 1/slowmo
-  // sub-steps per real tick) would compound to SHUTTLE_DRAG^(1/slowmo) per tick — far more loss
-  // than the dashed guide line computes, making the ball curve short and drift off the dashes.
-  // Raise it to the slowmo power so 1/slowmo sub-steps multiply back to exactly SHUTTLE_DRAG.
-  const subDrag = Math.pow(SHUTTLE_DRAG, slowmo);
-  const moved: ShuttleState = {
-    ...s,
-    pos: { x: s.pos.x + s.vel.x * slowmo, y: s.pos.y + s.vel.y * slowmo },
-    vel: { x: s.vel.x * subDrag, y: s.vel.y * subDrag },
-    z: s.z + vz * slowmo,
-    vz,
-    deadReason: null,
-  };
-  const walled = applyWalls(moved, s);
-  return applyFloorBounce(walled, s, PRACTICE_FLOOR_FRICTION);
+  // Delegates to the single source of truth so the preview, the dashed guide and the live
+  // rally share one integrator (drag is raised to the slowmo power inside stepShuttle).
+  return stepShuttle(s, { dt: slowmo, floorFriction: PRACTICE_FLOOR_FRICTION });
 }
 
 /**
@@ -578,60 +596,43 @@ function previewPhysicsStep(s: ShuttleState, slowmo: number): ShuttleState {
  * FIRST floor landing point (and ticks to it). Pure look-ahead; never mutates the live
  * ball. The renderer draws a shrinking marker here and the AI runs to it.
  */
-function predictLanding(s: ShuttleState): ShuttleState {
+export function predictLanding(s: ShuttleState): ShuttleState {
   if (!s.inPlay) return { ...s, landing: null, landingEta: 0 };
-  let x = s.pos.x;
-  let y = s.pos.y;
-  let z = s.z;
-  let vx = s.vel.x;
-  let vy = s.vel.y;
-  let vz = s.vz;
-  let prevY = y;
-  let prevZ = z;
-  let hitFront = s.hitFrontWall;
-  let t = 0;
+  // Forward-integrate through the SAME stepShuttle the live rally uses, so the landing
+  // marker / AI run-to point can't disagree with where the ball really lands. Uses match
+  // FLOOR_FRICTION (preserves prior behaviour; AI run-to is a match-mode concern).
+  let cur = { ...s };
+  const opts: StepOpts = { dt: 1, floorFriction: FLOOR_FRICTION };
   const MAX = 300; // 5s cap
-  while (t < MAX) {
-    vz -= GRAVITY;
-    x += vx;
-    y += vy;
-    z += vz;
-    vx *= SHUTTLE_DRAG;
-    vy *= SHUTTLE_DRAG;
-    // Front wall
-    if (prevY > 0 && y <= 0) {
-      const span = prevY - y;
-      const tt = span > 1e-6 ? prevY / span : 0;
-      const hitZ = prevZ + (z - prevZ) * tt;
-      if (hitZ >= TIN_HEIGHT && hitZ <= FRONT_OUT_HEIGHT) hitFront = true;
-      vy = Math.abs(vy) * FRONT_WALL_BOUNCE;
-      y = EPS;
+  for (let t = 1; t <= MAX; t++) {
+    const prevBounces = cur.bouncesSinceWall;
+    cur = stepShuttle(cur, opts);
+    // First floor bounce after a legal shot (or any death) is the spot the marker/AI targets.
+    if (cur.bouncesSinceWall > prevBounces || cur.deadReason != null) {
+      return { ...s, landing: { x: cur.pos.x, y: cur.pos.y }, landingEta: t };
     }
-    if (y >= COURT.depth) {
-      vy = -Math.abs(vy) * WALL_BOUNCE;
-      y = COURT.depth - EPS;
-    }
-    if (x <= 0) {
-      vx = Math.abs(vx) * WALL_BOUNCE;
-      x = EPS;
-    } else if (x >= COURT.width) {
-      vx = -Math.abs(vx) * WALL_BOUNCE;
-      x = COURT.width - EPS;
-    }
-    // Floor landing
-    if (z <= 0 && vz <= 0) {
-      if (hitFront) break; // first landing after a legal shot — this is the spot
-      // a fault landing; still report the spot
-      break;
-    }
-    prevY = y;
-    prevZ = z;
-    t++;
   }
-  return { ...s, landing: { x, y }, landingEta: t };
+  return { ...s, landing: { x: cur.pos.x, y: cur.pos.y }, landingEta: MAX };
 }
 
 type SwingResult = { player: PlayerState; shuttle: ShuttleState; hitstop: number };
+
+/**
+ * Closest-approach distance from a point P to the segment A→B. Used to sweep the racket
+ * head against the ball's path THIS tick (prevPos → pos) instead of only its endpoint, so
+ * a fast ball that crosses the racket between ticks can't tunnel straight through it.
+ */
+function pointToSegmentDist(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const abx = bx - ax;
+  const aby = by - ay;
+  const lenSq = abx * abx + aby * aby;
+  if (lenSq < 1e-9) return Math.hypot(px - ax, py - ay); // degenerate segment = a point
+  let t = ((px - ax) * abx + (py - ay) * aby) / lenSq;
+  t = t < 0 ? 0 : t > 1 ? 1 : t; // clamp to the segment
+  const cx = ax + t * abx;
+  const cy = ay + t * aby;
+  return Math.hypot(px - cx, py - cy);
+}
 
 function resolveSwing(
   pl: PlayerState,
@@ -640,6 +641,7 @@ function resolveSwing(
   side: Side,
   _opponent: PlayerState,
   rallyHitCount = 0,
+  prevShuttle?: ShuttleState,
 ): SwingResult {
   const swinging = input.swing;
   const strokeId = input.stroke;
@@ -657,12 +659,18 @@ function resolveSwing(
   if (!shuttle.inPlay) return { player: pl, shuttle, hitstop: 0 };
 
   const hitFrom = diving ? pl.pos : racketCenter(pl.pos, side);
-  const dx = shuttle.pos.x - hitFrom.x;
-  const dy = shuttle.pos.y - hitFrom.y;
-  const dist = Math.sqrt(dx * dx + dy * dy);
+  // Swept hit test: measure the racket head against the ball's PATH this tick
+  // (prevPos → pos), not just its endpoint, so a fast ball can't pass through the racket
+  // between ticks. prevShuttle is the pre-stepBall ball; when absent (e.g. frozen-ball
+  // preview where the ball didn't fly) the segment collapses to the single point.
+  const prevPos = prevShuttle?.pos ?? shuttle.pos;
+  const dist = pointToSegmentDist(hitFrom.x, hitFrom.y, prevPos.x, prevPos.y, shuttle.pos.x, shuttle.pos.y);
   const reach = diving ? SWING_REACH + DIVE_REACH_BONUS : SWING_REACH;
   const reachZ = diving ? SWING_REACH_Z + DIVE_REACH_BONUS : SWING_REACH_Z;
-  const reachable = dist <= reach && shuttle.z <= reachZ;
+  // Height gate uses the LOWER of this tick's z endpoints so a ball dipping through the
+  // reachable band mid-tick still counts as reachable.
+  const minZ = prevShuttle ? Math.min(shuttle.z, prevShuttle.z) : shuttle.z;
+  const reachable = dist <= reach && minZ <= reachZ;
 
   // A dive return is always a scrappy flat "drive" save.
   const effectiveStroke: StrokeId = diving ? 'drive' : requestedStroke;
@@ -919,73 +927,54 @@ export function sampleServePath(
   floorFriction: number = FLOOR_FRICTION,
 ): PathPoint[] {
   const points: PathPoint[] = [{ x: startPos.x, y: startPos.y, z: startZ }];
-  let x = startPos.x, y = startPos.y, z = startZ;
-  let vx = vel.x, vy = vel.y, curVz = vz;
-  let prevY = y, prevZ = z;
-  let floorHits = 0;
+  // Integrate through the SAME stepShuttle the live rally uses, so the dashed guide and
+  // the real ball cannot diverge. Wall/floor events are read off the returned state to
+  // place the labelled PathPoints the renderer draws; tin/out get their dedicated visuals.
+  let s: ShuttleState = {
+    pos: { x: startPos.x, y: startPos.y }, z: startZ,
+    vel: { x: vel.x, y: vel.y }, vz,
+    inPlay: true, lastHitBy: 0, bouncesSinceWall: 0,
+    hitFrontWall: false, lastWall: null, deadReason: null,
+    landing: null, landingEta: 0,
+  };
+  const opts: StepOpts = { dt: 1, floorFriction };
   const MAX = 400;
   for (let t = 1; t <= MAX; t++) {
-    curVz -= GRAVITY;
-    x += vx;
-    y += vy;
-    z += curVz;
-    vx *= SHUTTLE_DRAG;
-    vy *= SHUTTLE_DRAG;
+    const prevWall = s.lastWall;
+    const prevBounces = s.bouncesSinceWall;
+    s = stepShuttle(s, opts);
 
-    // Front wall
-    if (prevY > 0 && y <= 0) {
-      const span = prevY - y;
-      const frac = span > 1e-6 ? prevY / span : 0;
-      const hitZ = prevZ + (z - prevZ) * frac;
-      if (hitZ > FRONT_OUT_HEIGHT) {
-        // Above the out line → OUT. Don't reflect: let the ball sail over the front
-        // wall and out of court, then end the preview (the shot is a fault).
-        points.push({ x, y: 0, z: hitZ, wall: 'out' });
-        for (let k = 1; k <= 8; k++) {
-          curVz -= GRAVITY;
-          x += vx; y -= Math.abs(vy); z += curVz; // keep flying forward (out) + arc down
-          points.push({ x, y, z: Math.max(z, 0) });
-        }
-        break;
+    // OUT: ball cleared the out line. stepShuttle already reflected it (and stamped
+    // deadReason='out'); for the guide we instead let it sail forward + arc down so the
+    // player sees the shot leave the court, then end. Mirrors the old preview visual.
+    if (s.deadReason === 'out') {
+      points.push({ x: s.pos.x, y: 0, z: s.z, wall: 'out' });
+      let { x: ox, y: oy } = s.pos; let oz = s.z; let ovz = s.vz;
+      const ovx = s.vel.x; const ovy = Math.abs(s.vel.y);
+      for (let k = 1; k <= 8; k++) {
+        ovz -= GRAVITY;
+        ox += ovx; oy -= ovy; oz += ovz; // keep flying forward (out) + arc down
+        points.push({ x: ox, y: oy, z: Math.max(oz, 0) });
       }
-      if (hitZ < TIN_HEIGHT) {
-        // Below the tin → struck the board (dead). Mark + dribble + end the preview.
-        points.push({ x, y: 0, z: hitZ, wall: 'tin' });
-        break;
-      }
-      points.push({ x, y: 0, z: hitZ, wall: 'front' });
-      vy = Math.abs(vy) * FRONT_WALL_BOUNCE;
-      y = EPS;
+      break;
     }
-    // Back wall
-    if (y >= COURT.depth) {
-      points.push({ x, y: COURT.depth, z, wall: 'back' });
-      vy = -Math.abs(vy) * WALL_BOUNCE;
-      y = COURT.depth - EPS;
+    if (s.deadReason === 'tin') {
+      points.push({ x: s.pos.x, y: 0, z: s.z, wall: 'tin' });
+      break;
     }
-    // Side walls
-    if (x <= 0) {
-      points.push({ x: 0, y, z, wall: 'left' });
-      vx = Math.abs(vx) * WALL_BOUNCE;
-      x = EPS;
-    } else if (x >= COURT.width) {
-      points.push({ x: COURT.width, y, z, wall: 'right' });
-      vx = -Math.abs(vx) * WALL_BOUNCE;
-      x = COURT.width - EPS;
+
+    // Wall event: lastWall changed → drop a labelled point at the contact.
+    if (s.lastWall !== prevWall && s.lastWall != null) {
+      points.push({ x: s.pos.x, y: s.pos.y, z: s.z, wall: s.lastWall });
     }
-    // Floor: first bounce rebounds (FLOOR_BOUNCE); the second ends the rally.
-    if (z <= 0 && curVz <= 0) {
-      floorHits++;
-      points.push({ x, y, z: 0, wall: 'floor' });
-      if (floorHits >= 2) break;
-      curVz = Math.abs(curVz) * FLOOR_BOUNCE;
-      vx *= floorFriction; // shed horizontal skid on the rebound (mirror live physics)
-      vy *= floorFriction;
-      z = EPS;
+    // Floor event: a bounce accrued → drop a floor point; 2nd bounce or any death ends it.
+    if (s.bouncesSinceWall > prevBounces) {
+      points.push({ x: s.pos.x, y: s.pos.y, z: 0, wall: 'floor' });
+      if (s.bouncesSinceWall >= 2 || s.deadReason != null) break;
     }
-    if (t % sampleEvery === 0) points.push({ x, y, z });
-    prevY = y;
-    prevZ = z;
+    if (s.deadReason != null) break;
+
+    if (t % sampleEvery === 0) points.push({ x: s.pos.x, y: s.pos.y, z: s.z });
   }
   return points;
 }
