@@ -684,7 +684,10 @@ export class CanvasRenderer {
     const ctx = this.ctx;
     // Camera-side glass gallery wall, painted procedurally (the generated glass PNG baked a
     // fake transparency checkerboard into its pixels). Shared with the practice renderer.
-    drawGalleryGlass(ctx, GAME_WIDTH, GAME_HEIGHT);
+    // This renderer's camera (projection.ts) puts the back wall in the lower band, so the
+    // pane spans from the floor line down to the frame bottom.
+    const glassTop = GAME_HEIGHT * 0.645;
+    drawGalleryGlass(ctx, 0, glassTop, GAME_WIDTH, GAME_HEIGHT - glassTop);
 
     if (!this.hasCourtArt()) {
       // Back-wall out line — only as gameplay reference when no baked art.

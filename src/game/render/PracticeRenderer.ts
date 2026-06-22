@@ -42,6 +42,7 @@ import { AIInput, type Difficulty } from '@/game/input/AIInput';
 import { eventBus } from '@/game/eventBus';
 import { SoundEngine } from '@/game/audio/SoundEngine';
 import { loadAssets, getImage, PLAYER_BACKVIEW_CROPS, PLAYER_ACTIONS_V2_CROPS, OPPONENT_CROPS } from '@/assets/assetLoader';
+import { drawGalleryGlass } from '@/game/render/galleryGlass';
 
 export const GAME_WIDTH = 1280;
 export const GAME_HEIGHT = 720;
@@ -801,7 +802,7 @@ export class FrontWallRenderer {
         const backOutY = sideOutScreenY(1);
         const audienceH = FAR_BOTTOM - backOutY;
         if (audienceH > 4) {
-          const CROWD_TOP = 0.42; // skip the baked white band; crowd starts ~42% down
+          const CROWD_TOP = 0.52; // skip the baked white band; crowd starts ~52% down
           const sy = img.naturalHeight * CROWD_TOP;
           const sh = img.naturalHeight - sy;
           ctx.save();
@@ -815,6 +816,12 @@ export class FrontWallRenderer {
         }
       }
     }
+
+    // Glass pane over the back wall — translucent pane + sheen + brushed-metal mullions,
+    // drawn across the FAR rect so the audience reads as sitting BEHIND a real glass wall
+    // deep in the court. This is the visible "玻璃在後面" tell; without it the back wall is
+    // just a flat tint and reads as a painted wall, not glass.
+    drawGalleryGlass(ctx, FAR_LEFT, FAR_TOP, FAR_W, FAR_H);
 
     // Back wall 4 frame edges
     ctx.strokeStyle = 'rgba(80,120,180,0.55)';
