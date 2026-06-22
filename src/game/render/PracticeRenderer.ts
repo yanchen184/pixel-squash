@@ -42,7 +42,6 @@ import { AIInput, type Difficulty } from '@/game/input/AIInput';
 import { eventBus } from '@/game/eventBus';
 import { SoundEngine } from '@/game/audio/SoundEngine';
 import { loadAssets, getImage, PLAYER_BACKVIEW_CROPS, PLAYER_ACTIONS_V2_CROPS, OPPONENT_CROPS } from '@/assets/assetLoader';
-import { drawGalleryGlass } from '@/game/render/galleryGlass';
 
 export const GAME_WIDTH = 1280;
 export const GAME_HEIGHT = 720;
@@ -524,22 +523,17 @@ export class FrontWallRenderer {
     ctx.save();
     ctx.translate(sx, sy);
 
-    const courtArt = this.hasCourtArt();
-    if (courtArt) {
-      // Real court backdrop (audience + neon walls + floor) — the same front-wall
-      // perspective art the match renderer uses. Procedural wall/floor fills AND
-      // the procedural court lines (drawGlassBackWall / drawFrontWallLines) are
-      // skipped: the art already paints them, and our own projection's lines sit
-      // at a different perspective, so drawing both produces double-line ghosting
-      // ("圖與現場元素疊不起來"). With the art present we keep ONE set of lines
-      // (the image's) and only overlay dynamic gameplay geometry below.
-      this.drawCourtBaseArt();
-    } else {
-      this.drawBg();
-      this.drawSideWalls();
-      this.drawFloor(s);
-      this.drawGlassBackWall(s);
-    }
+    // SINGLE perspective box, always procedural. The baked court_bg art was authored
+    // with the OPPOSITE depth direction (front wall + floor receding the other way),
+    // so blitting it under our own projection put the glass back wall in the lower
+    // band and flipped the floor ("玻璃位置錯了/地板反了"). We draw the room ourselves
+    // with the renderer's depth system so the glass back wall converges to the FAR
+    // VP (top, "玻璃在後面"), the floor recedes correctly, and the ball — projected
+    // through the SAME screenX/screenY — sits exactly on the court.
+    this.drawBg();
+    this.drawSideWalls();
+    this.drawFloor(s);
+    this.drawGlassBackWall(s);
     // Both players face the front wall (same side). In match draw the opponent too,
     // z-sorted so the one farther from camera (larger y) is drawn first / behind.
     if (this.gameMode === 'match') {
@@ -549,13 +543,10 @@ export class FrontWallRenderer {
     } else {
       this.drawPlayer(s.p1);
     }
-    // Back glass-gallery wall — the FOREGROUND layer, on the CAMERA side (lower screen,
-    // behind the players). The SCREEN itself is the solid front wall (top); the glass is
-    // the back wall the audience watches through. Drawn AFTER the players so a competitor
-    // deep in the court reads as "behind the glass" — solid wall behind, glass in front.
-    // Mirrors CanvasRenderer.drawBackGlassFront so practice + match share the layer.
-    if (courtArt) this.drawCourtGlassOverlay();
-    if (!courtArt) this.drawFrontWallLines();
+    // Front-wall reference lines (OUT / SERVICE / TIN / centre). The glass back wall is
+    // already drawn at the FAR VP by drawGlassBackWall above — it lives in the court's
+    // depth, not as a near-camera overlay, so the floating lower-band gallery pane is gone.
+    this.drawFrontWallLines();
     this.drawPreviewPath(s);
     this.drawPersistentTrail();
     this.drawBallTrail();
@@ -579,48 +570,6 @@ export class FrontWallRenderer {
   }
 
   // ── Background ────────────────────────────────────────────────────────────
-
-  /** True when the generated front-wall court art is loaded (use it as the backdrop). */
-  private hasCourtArt(): boolean {
-    return getImage('court_bg_no_glass') !== null;
-  }
-
-  /**
-   * Draw the generated court background (audience + neon side walls + floor lines)
-   * stretched to fill the frame, then mask out the baked-in scoreboard so the live
-   * HUD reads cleanly. Mirrors CanvasRenderer.drawCourtBaseArt so practice + match
-   * share one backdrop.
-   */
-  private drawCourtBaseArt(): void {
-    const img = getImage('court_bg_no_glass');
-    if (!img) return;
-    const ctx = this.ctx;
-    ctx.save();
-    ctx.globalAlpha = 1.0;
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.drawImage(img, 0, 0, GAME_WIDTH, GAME_HEIGHT);
-    ctx.restore();
-    // Cover the scoreboard baked into the art (the live score comes from the HUD).
-    // Image is 600×400; the scoreboard sits centred near the top, so scale the mask
-    // to our 1280×720 frame.
-    ctx.save();
-    ctx.fillStyle = 'rgba(6,8,16,0.97)';
-    ctx.fillRect(GAME_WIDTH * 0.40, GAME_HEIGHT * 0.05, GAME_WIDTH * 0.20, GAME_HEIGHT * 0.10);
-    ctx.restore();
-  }
-
-  /**
-   * Back glass-gallery wall, on the CAMERA side (the lower band of the frame, behind the
-   * players). The SCREEN itself is the solid front wall the ball hits (top of frame); this
-   * glass is the OTHER wall — the gallery the audience watches through ("壁球的玻璃在另外那邊").
-   * Painted procedurally rather than blitted from a PNG: the generated glass sheet baked a
-   * fake transparency checkerboard into its pixels, which read as an unloaded placeholder.
-   * A clean translucent pane + sheen + metal mullions reads as real glass and stays in our
-   * control. Drawn AFTER the players so a deep competitor reads as behind the glass.
-   */
-  private drawCourtGlassOverlay(): void {
-    drawGalleryGlass(this.ctx, GAME_WIDTH, GAME_HEIGHT);
-  }
 
   private drawBg(): void {
     const ctx = this.ctx;
@@ -842,19 +791,25 @@ export class FrontWallRenderer {
     ctx.fillStyle = 'rgba(20,40,70,0.7)';
     ctx.fill();
 
-    // Audience through glass — only below the back-wall out line
+    // Audience through glass — only below the back-wall out line. The source PNG bakes an
+    // opaque white "fake transparency" band across its TOP ~42% (alpha is 255 there, not a
+    // real cutout), so blitting the whole sheet paints a grey-white slab over the glass.
+    // Source only the LOWER crowd band of the image to drop that baked checkerboard.
     if (this.assetsReady) {
       const img = getImage('audience_side');
       if (img) {
         const backOutY = sideOutScreenY(1);
         const audienceH = FAR_BOTTOM - backOutY;
         if (audienceH > 4) {
+          const CROWD_TOP = 0.42; // skip the baked white band; crowd starts ~42% down
+          const sy = img.naturalHeight * CROWD_TOP;
+          const sh = img.naturalHeight - sy;
           ctx.save();
           ctx.beginPath();
           ctx.rect(FAR_LEFT, backOutY, FAR_W, audienceH);
           ctx.clip();
           ctx.globalAlpha = 0.4;
-          ctx.drawImage(img, FAR_LEFT, backOutY, FAR_W, audienceH);
+          ctx.drawImage(img, 0, sy, img.naturalWidth, sh, FAR_LEFT, backOutY, FAR_W, audienceH);
           ctx.globalAlpha = 1;
           ctx.restore();
         }
