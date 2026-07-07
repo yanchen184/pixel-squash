@@ -13,6 +13,14 @@ export default defineConfig({
   server: {
     port: 5180,
   },
+  build: {
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL('./index.html', import.meta.url)),
+        replay: fileURLToPath(new URL('./replay.html', import.meta.url)),
+      },
+    },
+  },
   test: {
     // Unit tests live in tests/; e2e/ is Playwright-only and must not be
     // collected by vitest (it owns its own runner via `npm run e2e`).

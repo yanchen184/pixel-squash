@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pixel Squash — 重播檢視器</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #10141f; overflow: hidden; }
+      body { font-family: system-ui, "Noto Sans TC", sans-serif; color: #eee; }
+      #view { display: block; width: 100vw; height: 100vh; }
+      .hud { position: fixed; pointer-events: none; text-shadow: 0 1px 4px #000; }
+      #score { top: 16px; left: 50%; transform: translateX(-50%); font-size: 40px; font-weight: 700; }
+      #note { top: 68px; left: 50%; transform: translateX(-50%); font-size: 18px; color: #ffd166; }
+      #meta { bottom: 54px; left: 16px; font-size: 12px; color: #8a93a8; }
+      #bar {
+        position: fixed; bottom: 12px; left: 16px; right: 16px;
+        display: flex; gap: 10px; align-items: center;
+      }
+      #bar button, #bar select {
+        background: #232a3d; color: #eee; border: 1px solid #3a4460;
+        border-radius: 6px; padding: 4px 12px; font-size: 16px; cursor: pointer;
+      }
+      #seek { flex: 1; accent-color: #3b82f6; }
+    </style>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <div id="score" class="hud">0 : 0</div>
+    <div id="note" class="hud"></div>
+    <div id="meta" class="hud"></div>
+    <div id="bar">
+      <button id="play">▶</button>
+      <select id="speedSel">
+        <option value="0.25">0.25×</option>
+        <option value="0.5">0.5×</option>
+        <option value="1">1×</option>
+        <option value="2">2×</option>
+        <option value="4">4×</option>
+      </select>
+      <input id="seek" type="range" min="0" max="1" value="0" step="1" />
+    </div>
+    <script type="module" src="/src/render3d/replayMain.ts"></script>
+  </body>
+</html>
