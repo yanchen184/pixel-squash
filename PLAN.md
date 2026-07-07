@@ -1,12 +1,98 @@
-# Pixel Squash — 引擎規格書（現況版）
+# Pixel Squash — 引擎規格書
 
-> **目標：拿到此文件，不看原始碼也能重建這個壁球遊戲。** 所有數字均為實際程式碼值，非設計願望。
+> **2026-07-07 定案：v2 重寫（本檔第 V 部）取代 v1 現況（第 0–11 章）。** v1 章節保留當「舊引擎現況參考 + 座標契約來源」，新開發一律照第 V 部走。
 >
-> **最後同步：2026-06-18**（路線圖回填：sprite/場地/觀眾/歡呼資產接入皆已完成並經瀏覽器 round-trip 驗證）
->
-> **血緣**：從 pixel-badminton（羽球）fork 而來，獨立 repo。共用四根設計支柱與整套接縫框架（InputSource / SimRunner / 決定性 60Hz / React 殼 / 測試法），改寫集中在物理（四牆反彈 vs 過網）+ 球路 + 計分 + 投影。
+> **血緣**：從 pixel-badminton（羽球）fork 而來，獨立 repo。
 >
 > 專案根：跨機器，Windows 在 `D:\projects\frontend\pixel-squash`。
+
+---
+
+# 第 V 部 — v2 重寫規格（B+C：物理核心重寫 + 真 3D）
+
+> 2026-07-07 Bob 定案。方向：**市面上可以玩的壁球遊戲**。三個硬需求：真 3D 房間 + 3D 球員模型、**決定性重播**、**AI 對戰機器人**；測試策略照「可測性金字塔」全套執行（方法論存全域記憶 `user_winning_move_testability_pyramid`）。
+
+## V.1 v1 死因（為什麼重寫而不是再修）
+
+| 死因 | 證據（v1 程式碼） | v2 對策 |
+|---|---|---|
+| **tof 反解速度**：先挑飛行時間再反推初速（`vx = dx/tof`）→ 球速隨距離縮放，不是物理 | `simulate.ts` `solveArcToWall`；`PRACTICE_SERVE_SLOWDOWN=1.65` 注解自承「raw tof 飛太快 1.6–2.7×」 | 固定**出手速度**、解**仰角**（正向物理） |
+| **雙套常數補丁**：練習/比賽各一套摩擦、slowmo、apex 上限 | `FLOOR_FRICTION=0.6` vs `PRACTICE_FLOOR_FRICTION=0.35`、`PRACTICE_SLOWMO=0.18`、`APEX_CEIL` | 單一物理，模式差異只在規則層 |
+| **px/tick 無現實錨點**：`GRAVITY=0.42 px/tick²` 對不上任何現實數字，調參全靠賭 | `gameState.ts:75` | SI 單位（m、m/s、9.81），每個常數可查核 |
+| **規則纏在物理裡**：死球判定寫在 `applyWalls` 中 | `simulate.ts` | 物理發事件流，規則層獨立消費 |
+
+v1 可保留的接縫：純函數 `step(state, inA, inB)`、單一積分器、`predictLanding` 前向積分、InputSource / SimRunner / eventBus。
+
+## V.2 架構總圖
+
+```
+src/engine/          ← v2 新核心（SI 單位、零渲染相依、決定性）
+  ball.ts            飛行層：積分器 + 牆/地碰撞 → 發事件流
+  rules.ts           規則層：吃事件流 → PAR-11 判分（不碰物理）
+  shot.ts            擊球層：固定速度解仰角；球路=3 欄位
+  bot.ts             AI 機器人：世界模型=引擎 predictLanding，技術旋鈕
+  replay.ts          重播：初始狀態 + 輸入流 + 逐 tick hash
+  prng.ts            帶種子 PRNG（引擎內唯一隨機源）
+src/render3d/        ← Three.js 渲染（只讀 engine state，不回寫）
+tools/dynamics/      ← L4 無頭自對打 harness（Node，輸出 JSON 儀表板）
+```
+
+**單位契約**：引擎全 SI（公尺、秒、m/s）。球場 9.75m（深）× 6.4m（寬）、tin 0.48m、前牆 out line 4.57m。v1 座標 `COURT=640×980px` 恰為 1px≈1cm → 舊渲染器適配層 = ×100。座標語意沿用 v1 §2：x 左→右、y 前牆(0)→後牆、z 高度。
+
+### V.2.1 飛行層 `ball.ts`（~80 行，6 個常數）
+
+- 常數：`g=9.81`、`airDrag=0.15/s`、`eWall≈0.78`、`eFloor≈0.60`、`floorGrip=0.80`、`maxHitSpeed=50 m/s`。全部可對現實查核（L2 錨點測試鎖區間）。
+- 半隱式 Euler、固定 60Hz。50m/s ≈ 0.83m/tick，牆碰撞用掃掠檢測防穿隧。
+- 輸出事件流：`wall-hit(which, point, speed)` / `floor-bounce(point)` / `ball-rest`。
+
+### V.2.2 規則層 `rules.ts`
+
+- 只吃事件流 + 擊球事件，輸出 `deadReason`（tin / out / double-bounce / not-front-wall / serve faults）與 PAR-11 計分（10-10 win-by-2、發球輪轉）。
+- 與物理解耦 → L3 可表格驅動窮舉全部判例，不用真的模擬飛行。
+
+### V.2.3 擊球層 `shot.ts`
+
+- **固定速度、解仰角**：每種球路給定出手速度與目標高度帶，引擎解出仰角（無解=該位置打不出這球，本身就是合理的遊戲規則）。
+- 球路從 v1 的 7 欄位縮到 3 欄位：`speed` / `targetHeightBand` / `faultCondition`。drive/boast/lob/drop/kill/serve 六種保留。
+
+### V.2.4 AI 機器人 `bot.ts`（測試基建，Phase 2 就做）
+
+- 世界模型 = 引擎本體的 `predictLanding`（不寫第二份物理）。
+- 技術旋鈕：反應延遲 tick 數、瞄準噪音（帶種子）、移速倍率、策略權重。同時服務難度分級與 L4 技術梯度/公平性測試。
+
+### V.2.5 決定性工程
+
+- **機械化禁用**(vitest lint 測試 `tests/engine-determinism-lint.test.ts`,零新依賴)`Math.sin/cos/hypot/pow/exp/log`、`**`、`Date` 於 `src/engine/`（IEEE-754 只保證 `+−×÷√` 跨引擎 byte 相同）；隨機只准 `prng.ts`。
+- 逐 tick 狀態 hash；重播檔 = 初始狀態 + 輸入流 + 最終 hash。
+- 不用 Rapier 等 WASM 物理（浮點不跨平台決定）。
+
+## V.3 測試策略 — 可測性金字塔五層
+
+| 層 | 內容 | 跑法/頻率 |
+|---|---|---|
+| **L1 不變量** | 決定性（同輸入 byte 相同）、能量單調遞減（碰撞恰耗 (1−e²) 法向能）、x 鏡像對稱、50m/s 不穿隧、無 NaN/Inf、保證靜止、`predictLanding`≡實跑零偏差 | vitest，每 commit |
+| **L2 現實錨點** | 黃金走廊區間：1m 落下反彈 0.30–0.45m、40m/s drive <0.4s 到前牆、存在能過頂進後 1/4 場的 lob、4–8s 內靜止 | vitest，每 commit |
+| **L3 規則矩陣** | 表格驅動事件序列窮舉判例 + 已知初速積分打到預期 deadReason + 性質測試（分數只 +1/rally、勝者≠發球者才轉發球權） | vitest，每 commit |
+| **L4 動態感指標** | bot 自對打數千 rally：回合長中位數 4–12、可回擊率 70–95%、每球路使用率 ≥5% 且無單招勝率 >50%、落點熵門檻、速度直方圖雙峰、勝負分 winner:error 55:45–70:30、技術梯度（強 bot >70% 勝）、公平性（同 bot 換邊 50±5%）；輸出 JSON 對 baseline 出差異表 | Node harness，每次調參 |
+| **L5 人眼驗證** | Playwright 錄精華 rally 影片；**黃金重播 blessing**：人點頭的 rally 凍結成輸入流+hash，物理改動弄壞 blessed 重播 → CI 紅，重調參需明示重新祝福；逐球路軌跡 SVG 圖 | 每里程碑 |
+
+開發迴圈：舊「改常數→開遊戲→肉眼賭」→ 新「改常數→秒級跑 L1-L4→看儀表板→里程碑看 30 秒影片」。
+
+## V.4 分期計畫
+
+| Phase | 交付 | 完成定義 |
+|---|---|---|
+| **P0** 物理核心 | `engine/ball.ts` + `prng.ts` + `replay.ts`（hash）+ 決定性 lint 測試 | L1 + L2 全綠 |
+| **P1** 規則層 | `rules.ts` PAR-11 全判例 | L3 全綠 |
+| **P2** 擊球 + bot | `shot.ts` 六球路 + `bot.ts` 旋鈕版 + `tools/dynamics/` harness v1 | L4 儀表板產出且入帶 |
+| **P3** 3D 骨架 | Three.js 球場 + 球 + 膠囊佔位球員 + 重播檢視器 | L5 精華影片管線可跑 |
+| **P4** 3D 球員 | 球員模型/動畫/鏡頭 | 里程碑 L5 blessing 一輪 |
+| **P5** 調參 + 市場功能 | 觸控、教學、難度分級、手感迭代 | L4 全帶通過 + blessed 重播庫成形 |
+
+---
+# 以下為 v1 現況規格（舊引擎參考，最後同步 2026-06-18）
+
+> **目標：拿到此文件，不看原始碼也能重建 v1 壁球遊戲。** 所有數字均為 v1 實際程式碼值。
 
 ---
 
