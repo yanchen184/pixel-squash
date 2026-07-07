@@ -3,22 +3,13 @@
  *
  * 決定性重播 = 種子 + bot 等級就是完整重播檔:同 URL 重載,逐 tick bit 相同
  * (HUD 顯示鏈式 hash,肉眼可對)。L5 管線:Playwright 開這頁錄影 → 精華影片。
+ * 錄製本體在 src/engine/selfplayReplay.ts(與黃金重播 blessing 測試共用)。
  *
  * URL 參數:?seed=42&a=medium&b=medium&rallies=6&speed=1&autoplay=1
  */
-import { hashBall, hashNumbers } from '../engine/replay';
 import { BOT_MEDIUM, BOT_STRONG, BOT_WEAK, type BotSkill } from '../engine/bot';
-import { createPrng } from '../engine/prng';
-import { createGame, IDLE_INPUT, stepGame, type Controller } from '../engine/sim';
-import { Render3D, type RenderState } from './render3d';
-
-interface Frame {
-  readonly state: RenderState;
-  readonly scoreA: number;
-  readonly scoreB: number;
-  /** 這 tick 發生的事(得分/擊球註記),沒有為 null */
-  readonly note: string | null;
-}
+import { recordSelfplay, type ReplayFrame } from '../engine/selfplayReplay';
+import { Render3D } from './render3d';
 
 const SKILLS: Record<string, BotSkill> = {
   strong: BOT_STRONG,
@@ -35,56 +26,13 @@ const REASON_LABEL: Record<string, string> = {
   'serve-fault-box': '發球落點失誤',
 };
 
-interface ReplayData {
-  readonly frames: readonly Frame[];
-  readonly finalHash: number;
-}
-
-/** 預模擬:跑 bot 對打,錄每 tick 的渲染切面 + 鏈式 hash */
-function simulate(seed: number, skillA: BotSkill, skillB: BotSkill, ralliesTarget: number): ReplayData {
-  const prng = createPrng(seed);
-  const controllers: { A: Controller; B: Controller } = {
-    A: { type: 'bot', skill: skillA },
-    B: { type: 'bot', skill: skillB },
-  };
-  const inputs = { A: IDLE_INPUT, B: IDLE_INPUT };
-  let sim = createGame('A');
-  const frames: Frame[] = [];
-  let hash = 0x811c9dc5;
-  let rallies = 0;
-  const MAX_TICKS = 60 * 60 * 5; // 5 分鐘保險絲
-
-  for (let t = 0; t < MAX_TICKS && rallies < ralliesTarget; t++) {
-    const out = stepGame(sim, controllers, inputs, prng);
-    sim = out.sim;
-    if (sim.ball !== null) hash = hashBall(sim.ball, hash);
-    hash = hashNumbers([sim.playerA.pos.x, sim.playerA.pos.y, sim.playerB.pos.x, sim.playerB.pos.y], hash);
-    let note: string | null = null;
-    for (const ev of out.events) {
-      if (ev.type === 'rally-end') {
-        rallies += 1;
-        note = `${ev.winner} 得分(${REASON_LABEL[ev.reason] ?? ev.reason})`;
-      } else if (ev.type === 'match-end') {
-        note = `比賽結束:${ev.winner} 勝`;
-        rallies = ralliesTarget;
-      }
-    }
-    frames.push({
-      state: {
-        ball: sim.ball === null ? null : { ...sim.ball.pos },
-        playerA: sim.playerA.pos,
-        playerB: sim.playerB.pos,
-      },
-      scoreA: sim.match.scoreA,
-      scoreB: sim.match.scoreB,
-      note,
-    });
-    if (sim.match.phase === 'match-over') break;
+function noteOf(f: ReplayFrame): string | null {
+  if (f.matchWinner !== null) return `比賽結束:${f.matchWinner} 勝`;
+  if (f.rallyEnd !== null) {
+    return `${f.rallyEnd.winner} 得分(${REASON_LABEL[f.rallyEnd.reason] ?? f.rallyEnd.reason})`;
   }
-  return { frames, finalHash: hash >>> 0 };
+  return null;
 }
-
-// ---------- DOM / 播放 ----------
 
 function el<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -101,7 +49,7 @@ function main(): void {
   let speed = Number(params.get('speed') ?? '1') || 1;
   let playing = params.get('autoplay') === '1';
 
-  const data = simulate(seed, skillA, skillB, rallies);
+  const data = recordSelfplay(seed, skillA, skillB, rallies);
   const total = data.frames.length;
 
   const canvas = el<HTMLCanvasElement>('view');
@@ -121,16 +69,26 @@ function main(): void {
   metaEl.textContent = `seed ${seed} · ${total} ticks · hash ${data.finalHash.toString(16).padStart(8, '0')}`;
 
   let head = 0; // 播放頭(浮點 tick)
+  let shownTick = -1;
   let lastNote = '';
   let noteAge = 0;
 
   function show(tickIdx: number): void {
     const f = data.frames[tickIdx];
-    view.sync(f.state);
+    // 揮拍事件逐 tick 觸發:跳幀時掃過中間 tick,不漏動畫
+    if (tickIdx > shownTick && tickIdx - shownTick <= 8) {
+      for (let t = shownTick + 1; t <= tickIdx; t++) {
+        const g = data.frames[t];
+        if (g.hitBy !== null) view.sync({ ...g, hitBy: g.hitBy });
+      }
+    }
+    shownTick = tickIdx;
+    view.sync({ ball: f.ball, playerA: f.playerA, playerB: f.playerB, hitBy: null });
     view.render();
     scoreEl.textContent = `${f.scoreA} : ${f.scoreB}`;
-    if (f.note !== null) {
-      lastNote = f.note;
+    const note = noteOf(f);
+    if (note !== null) {
+      lastNote = note;
       noteAge = 0;
     }
     noteEl.textContent = noteAge < 150 ? lastNote : '';
