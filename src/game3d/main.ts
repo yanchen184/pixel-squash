@@ -13,9 +13,11 @@ import {
   type Controller,
   type GameSim,
 } from '../engine/sim';
+import { LADDER } from '../engine/ladder';
 import { REASON_LABEL } from '../render3d/labels';
 import { Render3D } from '../render3d/render3d';
 import { GameAudio } from './audio';
+import { loadCareer, recordWin } from './career';
 import { HumanInput } from './input';
 
 function el<T extends HTMLElement>(id: string): T {
@@ -63,7 +65,35 @@ function flashQuality(q: keyof typeof QUALITY_LABEL): void {
   qualityEl.className = `hud q-${q}`;
 }
 
-function start(skill: BotSkill): void {
+// ---- 生涯天梯 ----
+let career = loadCareer();
+let careerRung: number | null = null; // 本場是天梯第幾階(快打 = null)
+const ladderEl = el<HTMLDivElement>('ladder');
+
+function renderLadder(): void {
+  ladderEl.replaceChildren();
+  LADDER.forEach((rung, i) => {
+    const btn = document.createElement('button');
+    const locked = i > career.unlocked;
+    btn.disabled = locked;
+    const beaten = career.beaten.includes(rung.id);
+    if (beaten) btn.classList.add('beaten');
+    if (!locked && !beaten && i === career.unlocked) btn.classList.add('next');
+    const rank = document.createElement('span');
+    rank.className = 'rank';
+    rank.textContent = `${i + 1} · ${locked ? '???' : rung.name}`;
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.textContent = locked ? '先擊敗前一位' : rung.tagline;
+    btn.append(rank, tag);
+    if (!locked) btn.addEventListener('click', () => start(rung.skill, i));
+    ladderEl.appendChild(btn);
+  });
+}
+renderLadder();
+
+function start(skill: BotSkill, rung: number | null = null): void {
+  careerRung = rung;
   audio.unlock();
   prng = createPrng(Date.now() >>> 0);
   controllers = { A: { type: 'external' }, B: { type: 'bot', skill } };
@@ -84,10 +114,23 @@ el<HTMLButtonElement>('btnMedium').addEventListener('click', () => start(BOT_MED
 el<HTMLButtonElement>('btnStrong').addEventListener('click', () => start(BOT_STRONG));
 
 function onMatchEnd(winner: 'A' | 'B', s: GameSim): void {
-  const title =
+  let title =
     winner === 'A'
       ? `🏆 你贏了 ${s.match.scoreA} : ${s.match.scoreB}`
       : `AI 獲勝 ${s.match.scoreA} : ${s.match.scoreB} — 再接再厲`;
+  if (careerRung !== null) {
+    const rung = LADDER[careerRung];
+    if (winner === 'A') {
+      const before = career.unlocked;
+      career = recordWin(career, careerRung);
+      title = `🏆 擊敗 ${rung.name}!${
+        career.unlocked > before ? `解鎖第 ${career.unlocked + 1} 階:${LADDER[career.unlocked].name}` : ''
+      }`;
+    } else {
+      title = `${rung.name} 獲勝 ${s.match.scoreA} : ${s.match.scoreB} — 再挑戰一次`;
+    }
+    renderLadder();
+  }
   endTitleEl.textContent = title;
   endTitleEl.style.display = 'block';
   for (const b of ['btnWeak', 'btnMedium', 'btnStrong']) {
@@ -176,5 +219,7 @@ requestAnimationFrame(loop);
     tick: sim.tick,
     posA: sim.playerA.pos,
     ball: sim.ball === null ? null : sim.ball.pos,
+    careerRung,
+    careerUnlocked: career.unlocked,
   };
 };

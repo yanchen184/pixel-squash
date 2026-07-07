@@ -304,12 +304,13 @@ export function stepGame(
       }
     } else {
       const skill = ctrl.skill;
+      const home = skill.home === undefined ? T_POS : skill.home; // 站位個性
       const reacted = tick - lastHitTick >= skill.reactionTicks;
       if (id === returner && ball !== null && reacted) {
-        const target = interceptPoint(ball) ?? T_POS;
+        const target = interceptPoint(ball) ?? home;
         next = clampPos(moveToward(pos, target, skill.moveSpeed * DT));
       } else if (id !== returner) {
-        next = clampPos(moveToward(pos, T_POS, skill.moveSpeed * DT));
+        next = clampPos(moveToward(pos, home, skill.moveSpeed * DT));
       }
     }
     if (id === 'A') posA = next;

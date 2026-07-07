@@ -22,7 +22,9 @@ export interface RallyRecord {
   readonly reason: DeadReason;
 }
 
-const MAX_TICKS_PER_RALLY = 60 * 90; // 90s 保險絲(rest 保證 ≤30s,理論到不了)
+// 4 分鐘保險絲:抓引擎停擺用,不是回合長度上限 —— M2 頂階 bot 鏡像對打實測
+// 中位數 ~13s、尾端可到 ~80s(N=100 max 4679 tick),90s 太緊會誤殺合法馬拉松回合
+const MAX_TICKS_PER_RALLY = 60 * 240;
 
 export function runRallies(
   skillA: BotSkill,

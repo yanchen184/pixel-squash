@@ -22,6 +22,10 @@ export interface BotSkill {
   readonly moveSpeed: number;
   /** 選球權重(不含 serve) */
   readonly weights: Readonly<Partial<Record<ShotKind, number>>>;
+  /** 站位偏好:非回擊時回防的點(省略 = T 點)。前場型/龜後場型個性由此而來 */
+  readonly home?: Vec3;
+  /** 風險傾向:橫向目標離牆邊距倍率。<1 貼牆更兇(易出界)、>1 留安全邊(好接),省略 = 1 */
+  readonly aimTight?: number;
 }
 
 export const BOT_STRONG: BotSkill = {
@@ -86,16 +90,18 @@ export function decideShot(skill: BotSkill, ballPos: Vec3, prng: Prng): BotShot 
   kinds.push(pickShot(skill, prng));
   if (!kinds.includes('drive')) kinds.push('drive');
   if (!kinds.includes('lob')) kinds.push('lob');
+  const tight = skill.aimTight === undefined ? 1 : skill.aimTight;
   for (const kind of kinds) {
     // 落點橫向目標:drive/kill 打直線(靠擊球側),drop/boast 打對角,lob 打開
+    // 邊距 × aimTight:風險傾向低於 1 會更貼牆
     const base =
       kind === 'drive' || kind === 'kill'
         ? ballPos.x < COURT_W / 2
-          ? 1.3
-          : COURT_W - 1.3
+          ? 1.3 * tight
+          : COURT_W - 1.3 * tight
         : ballPos.x < COURT_W / 2
-          ? COURT_W - 1.6
-          : 1.6;
+          ? COURT_W - 1.6 * tight
+          : 1.6 * tight;
     const noisyX = base + (prng.next() * 2 - 1) * skill.aimNoise;
     const targetX = noisyX < 0.3 ? 0.3 : noisyX > COURT_W - 0.3 ? COURT_W - 0.3 : noisyX;
     const v = solveShot(ballPos, targetX, kind);

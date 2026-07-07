@@ -45,6 +45,24 @@
         border: 1px solid #3a4157; background: #1d2436; color: #eef2fb; cursor: pointer;
       }
       #menu button:hover { background: #2a3450; }
+      #menu .quick { display: flex; gap: 10px; }
+      #menu .quick button { width: 118px; padding: 9px 0; font-size: 14px; color: #aeb8cf; }
+      #ladderTitle { font-size: 15px; color: #ffd166; margin-top: 4px; letter-spacing: 1px; }
+      #ladder {
+        display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
+        width: min(416px, 94vw); max-height: 46vh; overflow-y: auto; padding: 2px;
+      }
+      #ladder button {
+        width: 100%; padding: 8px 10px; font-size: 15px; text-align: left; line-height: 1.35;
+        display: flex; flex-direction: column; gap: 2px;
+      }
+      #ladder button .tag { font-size: 11.5px; color: #8a93a8; font-weight: 400; }
+      #ladder button:disabled {
+        opacity: 0.45; cursor: not-allowed; background: #151a28;
+      }
+      #ladder button.beaten { border-color: #3f6b46; }
+      #ladder button.beaten .rank::after { content: " ✓"; color: #9be8a8; }
+      #ladder button.next { border-color: #ffd166; }
       #menu .keys { font-size: 13px; color: #8a93a8; line-height: 1.9; text-align: center; }
       #menu a { color: #7fb4ff; font-size: 13px; }
       #endTitle { font-size: 30px; font-weight: 700; display: none; }
@@ -67,9 +85,13 @@
       <h1>PIXEL SQUASH</h1>
       <div class="sub">3D 壁球 · 你(藍)對 AI(橘) · PAR-11 先到 11 分(需贏 2 分)</div>
       <div id="endTitle" class="hud" style="position: static; display: none"></div>
-      <button id="btnWeak">輕鬆(弱 Bot)</button>
-      <button id="btnMedium">標準(中 Bot)</button>
-      <button id="btnStrong">挑戰(強 Bot)</button>
+      <div id="ladderTitle">生涯天梯 — 一路打上去</div>
+      <div id="ladder"></div>
+      <div class="quick">
+        <button id="btnWeak">輕鬆</button>
+        <button id="btnMedium">標準</button>
+        <button id="btnStrong">挑戰</button>
+      </div>
       <div class="keys">
         移動:WASD / 方向鍵 / 左半螢幕搖桿<br />
         擊球:空白鍵或 J=抽球 · K=挑高 · L=放小 · ;=殺球<br />
