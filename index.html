@@ -8,13 +8,63 @@
     />
     <title>Pixel Squash</title>
     <style>
-      html, body, #root { margin: 0; height: 100%; background: #1a1a2e; }
-      * { image-rendering: pixelated; }
-      body { font-family: system-ui, "Noto Sans TC", sans-serif; color: #eee; }
+      html, body { margin: 0; height: 100%; background: #10141f; overflow: hidden; }
+      body { font-family: system-ui, "Noto Sans TC", sans-serif; color: #eee; user-select: none; -webkit-user-select: none; }
+      #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+      .hud { position: fixed; left: 0; right: 0; text-align: center; pointer-events: none; text-shadow: 0 1px 4px rgba(0,0,0,.8); }
+      #score { top: 12px; font-size: 34px; font-weight: 700; }
+      #note { top: 58px; font-size: 17px; color: #ffd166; min-height: 22px; }
+      #serveHint { bottom: 118px; font-size: 16px; color: #9be8a8; }
+      #hint { bottom: 8px; font-size: 12px; color: #8a93a8; }
+      #shots { position: fixed; right: 14px; bottom: 64px; display: flex; flex-direction: column; gap: 10px; }
+      #shots[hidden] { display: none; }
+      #shots button {
+        width: 76px; height: 48px; border-radius: 12px; border: 1px solid #3a4157;
+        background: rgba(24,30,46,.85); color: #dfe6f3; font-size: 15px; font-family: inherit;
+      }
+      #shots button:active { background: #31548f; }
+      #menu {
+        position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+        justify-content: center; gap: 14px; background: rgba(10,13,22,.88); z-index: 10;
+      }
+      #menu h1 { font-size: 40px; margin: 0 0 6px; letter-spacing: 2px; }
+      #menu .sub { color: #9aa3b8; margin-bottom: 12px; }
+      #menu button {
+        width: 240px; padding: 13px 0; font-size: 18px; font-family: inherit; border-radius: 12px;
+        border: 1px solid #3a4157; background: #1d2436; color: #eef2fb; cursor: pointer;
+      }
+      #menu button:hover { background: #2a3450; }
+      #menu .keys { font-size: 13px; color: #8a93a8; line-height: 1.9; text-align: center; }
+      #menu a { color: #7fb4ff; font-size: 13px; }
+      #endTitle { font-size: 30px; font-weight: 700; display: none; }
     </style>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <canvas id="view"></canvas>
+    <div id="score" class="hud">0 : 0</div>
+    <div id="note" class="hud"></div>
+    <div id="serveHint" class="hud"></div>
+    <div id="hint" class="hud">移動 WASD/方向鍵 · 抽球 空白/J · 挑高 K · 放小 L · 殺球 ;</div>
+    <div id="shots" hidden>
+      <button id="btnDrive">抽球</button>
+      <button id="btnLob">挑高</button>
+      <button id="btnDrop">放小</button>
+      <button id="btnKill">殺球</button>
+    </div>
+    <div id="menu">
+      <h1>PIXEL SQUASH</h1>
+      <div class="sub">3D 壁球 · 你(藍)對 AI(橘) · PAR-11 先到 11 分(需贏 2 分)</div>
+      <div id="endTitle" class="hud" style="position: static; display: none"></div>
+      <button id="btnWeak">輕鬆(弱 Bot)</button>
+      <button id="btnMedium">標準(中 Bot)</button>
+      <button id="btnStrong">挑戰(強 Bot)</button>
+      <div class="keys">
+        移動:WASD / 方向鍵 / 左半螢幕搖桿<br />
+        擊球:空白鍵或 J=抽球 · K=挑高 · L=放小 · ;=殺球<br />
+        揮拍時按住 ←/→ 可瞄準左右角;輪到你發球時按任一擊球鍵發球
+      </div>
+      <a href="/replay.html?seed=20260707&a=strong&b=weak&rallies=6&autoplay=1">觀戰:AI 對打重播 →</a>
+    </div>
+    <script type="module" src="/src/game3d/main.ts"></script>
   </body>
 </html>

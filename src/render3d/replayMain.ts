@@ -9,21 +9,13 @@
  */
 import { BOT_MEDIUM, BOT_STRONG, BOT_WEAK, type BotSkill } from '../engine/bot';
 import { recordSelfplay, type ReplayFrame } from '../engine/selfplayReplay';
+import { REASON_LABEL } from './labels';
 import { Render3D } from './render3d';
 
 const SKILLS: Record<string, BotSkill> = {
   strong: BOT_STRONG,
   medium: BOT_MEDIUM,
   weak: BOT_WEAK,
-};
-
-const REASON_LABEL: Record<string, string> = {
-  tin: '打中 tin',
-  out: '出界',
-  'not-front-wall': '沒到前牆',
-  'double-bounce': '兩彈未接',
-  'serve-fault-front': '發球失誤',
-  'serve-fault-box': '發球落點失誤',
 };
 
 function noteOf(f: ReplayFrame): string | null {
