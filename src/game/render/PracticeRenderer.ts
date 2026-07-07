@@ -786,9 +786,24 @@ export class FrontWallRenderer {
     const ctx = this.ctx;
     ctx.save();
 
-    // Back wall fill (glass)
+    // The glass pane is only the LOWER band of the back wall — its top edge sits on the
+    // back-wall out line (where the side-wall out lines converge), NOT up at the ceiling.
+    // Above that line is solid wall (the gallery structure the glass is set into).
+    const glassTopY = sideOutScreenY(1); // back-wall out line = glass top edge
+    const glassH = FAR_BOTTOM - glassTopY;
+
+    // Solid wall above the glass (ceiling → out line): the masonry the glass pane sits in.
     ctx.beginPath();
-    ctx.rect(FAR_LEFT, FAR_TOP, FAR_W, FAR_H);
+    ctx.rect(FAR_LEFT, FAR_TOP, FAR_W, glassTopY - FAR_TOP);
+    const wallGrad = ctx.createLinearGradient(0, FAR_TOP, 0, glassTopY);
+    wallGrad.addColorStop(0, '#0e1626');
+    wallGrad.addColorStop(1, '#16223a');
+    ctx.fillStyle = wallGrad;
+    ctx.fill();
+
+    // Back wall fill (glass band only — below the out line)
+    ctx.beginPath();
+    ctx.rect(FAR_LEFT, glassTopY, FAR_W, glassH);
     ctx.fillStyle = 'rgba(20,40,70,0.7)';
     ctx.fill();
 
@@ -821,9 +836,9 @@ export class FrontWallRenderer {
     // drawn across the FAR rect so the audience reads as sitting BEHIND a real glass wall
     // deep in the court. This is the visible "玻璃在後面" tell; without it the back wall is
     // just a flat tint and reads as a painted wall, not glass.
-    drawGalleryGlass(ctx, FAR_LEFT, FAR_TOP, FAR_W, FAR_H);
+    drawGalleryGlass(ctx, FAR_LEFT, glassTopY, FAR_W, glassH);
 
-    // Back wall 4 frame edges
+    // Back wall 4 frame edges (full FAR rect — the wall+glass back face outline)
     ctx.strokeStyle = 'rgba(80,120,180,0.55)';
     ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(FAR_LEFT, FAR_TOP); ctx.lineTo(FAR_RIGHT, FAR_TOP); ctx.stroke();
