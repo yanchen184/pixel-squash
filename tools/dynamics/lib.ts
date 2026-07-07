@@ -52,8 +52,8 @@ export function runRallies(
         rallies.push({ hits, winner: ev.winner, loser: ev.loser, reason: ev.reason });
         hits = [];
         rallyStartTick = game.tick;
-      } else {
-        // match-end:換場重開(輪流先發,消除發球先手偏差)
+      } else if (ev.type === 'match-end') {
+        // 換場重開(輪流先發,消除發球先手偏差);其餘事件(ball-wall/ball-floor)是音效觸發源,這裡不關心
         matchIndex += 1;
         game = createGame(matchIndex % 2 === 0 ? 'A' : 'B');
         rallyStartTick = game.tick;

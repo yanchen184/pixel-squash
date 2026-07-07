@@ -16,6 +16,17 @@
       #note { top: 58px; font-size: 17px; color: #ffd166; min-height: 22px; }
       #serveHint { bottom: 118px; font-size: 16px; color: #9be8a8; }
       #hint { bottom: 8px; font-size: 12px; color: #8a93a8; }
+      #quality { top: 96px; font-size: 26px; font-weight: 800; letter-spacing: 1px; opacity: 0; }
+      #quality.q-perfect { color: #ffd700; animation: qpop .9s ease-out; }
+      #quality.q-good { color: #9be8a8; animation: qpop .7s ease-out; }
+      #quality.q-sloppy { color: #ff7b72; animation: qpop .7s ease-out; }
+      @keyframes qpop {
+        0% { opacity: 0; transform: scale(.6); }
+        15% { opacity: 1; transform: scale(1.15); }
+        30% { transform: scale(1); }
+        70% { opacity: 1; }
+        100% { opacity: 0; }
+      }
       #shots { position: fixed; right: 14px; bottom: 64px; display: flex; flex-direction: column; gap: 10px; }
       #shots[hidden] { display: none; }
       #shots button {
@@ -43,6 +54,7 @@
     <canvas id="view"></canvas>
     <div id="score" class="hud">0 : 0</div>
     <div id="note" class="hud"></div>
+    <div id="quality" class="hud"></div>
     <div id="serveHint" class="hud"></div>
     <div id="hint" class="hud">移動 WASD/方向鍵 · 抽球 空白/J · 挑高 K · 放小 L · 殺球 ;</div>
     <div id="shots" hidden>

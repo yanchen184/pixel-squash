@@ -3,11 +3,13 @@
  * harness(L4)與正式遊戲(P5)共用同一條路徑 —— 測的就是玩的。
  */
 
-import type { BallState, Vec3 } from './ball';
+import type { BallState, Vec3, WallId } from './ball';
 import { COURT_W, createBall, DT, stepBall } from './ball';
 import type { BotSkill } from './bot';
 import { decideShot, interceptPoint, REACH_HEIGHT, REACH_RADIUS } from './bot';
 import type { Prng } from './prng';
+import type { HitQuality } from './quality';
+import { applyQuality, qualityScore, qualityTier } from './quality';
 import type { DeadReason, MatchState, PlayerId } from './rules';
 import { createMatch, onBallEvent, onRacketHit } from './rules';
 import type { ShotKind } from './shot';
@@ -42,12 +44,25 @@ export interface GameSim {
   readonly tick: number;
   readonly lastHitTick: number;
   readonly serveCountdown: number;
+  /** 揮拍窗齡:swing 連續 true 的 tick 數,-1 = 沒在揮(bot 恆 -1) */
+  readonly swingAgeA: number;
+  readonly swingAgeB: number;
 }
 
 export type SimEvent =
-  | { readonly type: 'hit'; readonly player: PlayerId; readonly kind: ShotKind | 'shovel'; readonly speed: number; readonly point: Vec3 }
+  | {
+      readonly type: 'hit';
+      readonly player: PlayerId;
+      readonly kind: ShotKind | 'shovel';
+      readonly speed: number;
+      readonly point: Vec3;
+      /** 人類擊球才有:timing×步法品質分級(渲染回饋用) */
+      readonly quality?: HitQuality;
+    }
   | { readonly type: 'rally-end'; readonly winner: PlayerId; readonly loser: PlayerId; readonly reason: DeadReason }
-  | { readonly type: 'match-end'; readonly winner: PlayerId };
+  | { readonly type: 'match-end'; readonly winner: PlayerId }
+  | { readonly type: 'ball-wall'; readonly wall: WallId; readonly speed: number }
+  | { readonly type: 'ball-floor'; readonly point: Vec3 };
 
 export interface StepOutput {
   readonly sim: GameSim;
@@ -80,6 +95,8 @@ export function createGame(firstServer: PlayerId = 'A'): GameSim {
     tick: 0,
     lastHitTick: 0,
     serveCountdown: SERVE_DELAY_TICKS,
+    swingAgeA: -1,
+    swingAgeB: -1,
   };
 }
 
@@ -118,6 +135,7 @@ function shovelVelocity(from: Vec3): Vec3 {
 interface HitDecision {
   readonly kind: ShotKind | 'shovel';
   readonly velocity: Vec3;
+  readonly quality?: HitQuality;
 }
 
 function botHitDecision(skill: BotSkill, ballPos: Vec3, prng: Prng): HitDecision {
@@ -126,15 +144,27 @@ function botHitDecision(skill: BotSkill, ballPos: Vec3, prng: Prng): HitDecision
   return { kind: 'shovel', velocity: shovelVelocity(ballPos) };
 }
 
-function humanHitDecision(cmd: InputCmd, ballPos: Vec3): HitDecision {
+function humanHitDecision(
+  cmd: InputCmd,
+  ballPos: Vec3,
+  playerPos: Vec3,
+  swingAge: number,
+  prng: Prng,
+): HitDecision {
   const kind = cmd.shotKind ?? 'drive';
   const targetX = cmd.targetX ?? (ballPos.x < COURT_W / 2 ? 1.3 : COURT_W - 1.3);
+  const stretch = horizDist(playerPos, ballPos) / REACH_RADIUS;
+  const q = qualityScore(swingAge, stretch);
+  const quality = qualityTier(q);
   const v = solveShot(ballPos, targetX, kind);
-  if (v !== null) return { kind, velocity: v };
+  if (v !== null) return { kind, velocity: applyQuality(v, q, kind, prng), quality };
   // 指定球路解不出 → 退 drive → 再退 shovel
   const fallback = kind === 'drive' ? null : solveShot(ballPos, targetX, 'drive');
-  if (fallback !== null) return { kind: 'drive', velocity: fallback };
-  return { kind: 'shovel', velocity: shovelVelocity(ballPos) };
+  if (fallback !== null) {
+    return { kind: 'drive', velocity: applyQuality(fallback, q, 'drive', prng), quality };
+  }
+  // 墊擊本身就是勉強救球,不再疊擾動
+  return { kind: 'shovel', velocity: shovelVelocity(ballPos), quality };
 }
 
 /** 這 tick 該回擊的人(規則允許的唯一揮拍者);發球階段回 server */
@@ -166,6 +196,20 @@ export function stepGame(
   let lastHitTick = sim.lastHitTick;
   let serveCountdown = sim.serveCountdown;
 
+  // 揮拍窗齡:external 且 swing=true 才累加(接觸瞬間讀「按下後已過幾 tick」);bot 恆 -1
+  const swingAgeA =
+    controllers.A.type === 'external' && inputs.A.swing
+      ? sim.swingAgeA < 0
+        ? 0
+        : sim.swingAgeA + 1
+      : -1;
+  const swingAgeB =
+    controllers.B.type === 'external' && inputs.B.swing
+      ? sim.swingAgeB < 0
+        ? 0
+        : sim.swingAgeB + 1
+      : -1;
+
   // ---- 發球階段 ----
   if (match.phase === 'awaiting-serve') {
     const server = match.server;
@@ -191,7 +235,17 @@ export function stepGame(
       serveCountdown -= 1;
     }
     return {
-      sim: { ball, match, playerA: { pos: posA }, playerB: { pos: posB }, tick, lastHitTick, serveCountdown },
+      sim: {
+        ball,
+        match,
+        playerA: { pos: posA },
+        playerB: { pos: posB },
+        tick,
+        lastHitTick,
+        serveCountdown,
+        swingAgeA,
+        swingAgeB,
+      },
       events,
     };
   }
@@ -201,7 +255,13 @@ export function stepGame(
     const { ball: nextBall, events: ballEvents } = stepBall(ball);
     ball = nextBall;
     for (const ev of ballEvents) {
-      if (match.phase !== 'in-rally') break;
+      // 渲染/音效事件:無論規則層是否已收束都發(拍到牆/地的聲音是物理事實)
+      if (ev.type === 'wall-hit') {
+        events.push({ type: 'ball-wall', wall: ev.wall, speed: ev.speed });
+      } else if (ev.type === 'floor-bounce') {
+        events.push({ type: 'ball-floor', point: ev.point });
+      }
+      if (match.phase !== 'in-rally') continue;
       match = onBallEvent(match, ev);
     }
     if (match.lastRally !== null && match.phase !== 'in-rally') {
@@ -219,6 +279,8 @@ export function stepGame(
           tick,
           lastHitTick,
           serveCountdown: SERVE_DELAY_TICKS,
+          swingAgeA,
+          swingAgeB,
         },
         events,
       };
@@ -266,19 +328,42 @@ export function stepGame(
       const decision =
         ctrl.type === 'bot'
           ? botHitDecision(ctrl.skill, ball.pos, prng)
-          : humanHitDecision(inputs[returner], ball.pos);
+          : humanHitDecision(
+              inputs[returner],
+              ball.pos,
+              pos,
+              returner === 'A' ? swingAgeA : swingAgeB,
+              prng,
+            );
       match = onRacketHit(match, returner);
       const from = ball.pos;
       ball = createBall(from, decision.velocity);
       lastHitTick = tick;
       const v = decision.velocity;
       const sp = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-      events.push({ type: 'hit', player: returner, kind: decision.kind, speed: sp, point: from });
+      events.push({
+        type: 'hit',
+        player: returner,
+        kind: decision.kind,
+        speed: sp,
+        point: from,
+        quality: decision.quality,
+      });
     }
   }
 
   return {
-    sim: { ball, match, playerA: { pos: posA }, playerB: { pos: posB }, tick, lastHitTick, serveCountdown },
+    sim: {
+      ball,
+      match,
+      playerA: { pos: posA },
+      playerB: { pos: posB },
+      tick,
+      lastHitTick,
+      serveCountdown,
+      swingAgeA,
+      swingAgeB,
+    },
     events,
   };
 }

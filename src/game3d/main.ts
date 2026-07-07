@@ -15,6 +15,7 @@ import {
 } from '../engine/sim';
 import { REASON_LABEL } from '../render3d/labels';
 import { Render3D } from '../render3d/render3d';
+import { GameAudio } from './audio';
 import { HumanInput } from './input';
 
 function el<T extends HTMLElement>(id: string): T {
@@ -30,6 +31,7 @@ const serveHintEl = el<HTMLDivElement>('serveHint');
 const menuEl = el<HTMLDivElement>('menu');
 const endTitleEl = el<HTMLDivElement>('endTitle');
 const shotsEl = el<HTMLDivElement>('shots');
+const qualityEl = el<HTMLDivElement>('quality');
 
 const view = new Render3D(canvas);
 const fit = (): void => view.resize(window.innerWidth, window.innerHeight);
@@ -49,8 +51,20 @@ let prng = createPrng(1);
 let noteUntil = 0; // 事件標語顯示到的時刻(秒)
 let acc = 0;
 let lastTime: number | null = null;
+const audio = new GameAudio();
+
+const QUALITY_LABEL = { perfect: 'PERFECT!', good: 'GOOD', sloppy: '毛掉了…' } as const;
+
+/** 人類擊球品質閃字(CSS animation 進出,重觸發要先歸零) */
+function flashQuality(q: keyof typeof QUALITY_LABEL): void {
+  qualityEl.textContent = QUALITY_LABEL[q];
+  qualityEl.className = 'hud'; // 清掉舊等級 class,強制 reflow 重播動畫
+  void qualityEl.offsetWidth;
+  qualityEl.className = `hud q-${q}`;
+}
 
 function start(skill: BotSkill): void {
+  audio.unlock();
   prng = createPrng(Date.now() >>> 0);
   controllers = { A: { type: 'external' }, B: { type: 'bot', skill } };
   sim = createGame('A');
@@ -91,12 +105,22 @@ function stepOnce(): void {
   for (const ev of out.events) {
     if (ev.type === 'hit') {
       hitBy = ev.player;
-      if (ev.player === 'A') input.onHit();
+      audio.racketHit(ev.speed, ev.quality);
+      if (ev.player === 'A') {
+        input.onHit();
+        if (ev.quality !== undefined) flashQuality(ev.quality);
+      }
+    } else if (ev.type === 'ball-wall') {
+      audio.wallHit(ev.speed);
+    } else if (ev.type === 'ball-floor') {
+      audio.floorBounce();
     } else if (ev.type === 'rally-end') {
       const who = ev.winner === 'A' ? '你' : 'AI';
       noteEl.textContent = `${who}得分(${REASON_LABEL[ev.reason]})`;
       noteUntil = performance.now() / 1000 + 2.5;
-    } else {
+      audio.score(ev.winner === 'A');
+    } else if (ev.type === 'match-end') {
+      audio.matchEnd(ev.winner === 'A');
       onMatchEnd(ev.winner, sim);
     }
   }
@@ -151,5 +175,6 @@ requestAnimationFrame(loop);
     server: sim.match.server,
     tick: sim.tick,
     posA: sim.playerA.pos,
+    ball: sim.ball === null ? null : sim.ball.pos,
   };
 };
