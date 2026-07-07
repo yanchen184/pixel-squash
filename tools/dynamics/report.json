@@ -1,0 +1,127 @@
+{
+  "generatedAtSeed": 20260707,
+  "nFair": 400,
+  "nGrad": 200,
+  "fair": {
+    "rallies": 400,
+    "rallyLengthMedian": 6,
+    "rallyLengthP90": 17,
+    "returnability": 0.9497300944669366,
+    "winnerErrorRatio": {
+      "winners": 149,
+      "errors": 251
+    },
+    "shotUsage": {
+      "serve": 0.12441679626749612,
+      "drive": 0.2740279937791602,
+      "boast": 0.11539657853810265,
+      "kill": 0.16018662519440124,
+      "drop": 0.14867807153965784,
+      "lob": 0.16516329704510108,
+      "shovel": 0.012130637636080872
+    },
+    "winningShotShare": {
+      "kill": 0.1342281879194631,
+      "drop": 0.31543624161073824,
+      "drive": 0.3691275167785235,
+      "boast": 0.18120805369127516
+    },
+    "speedHistogram": [
+      0,
+      0,
+      735,
+      691,
+      369,
+      24,
+      881,
+      514,
+      1,
+      0
+    ],
+    "rallyWinRateA": 0.5375,
+    "deadReasons": {
+      "out": 134,
+      "double-bounce": 149,
+      "tin": 116,
+      "not-front-wall": 1
+    }
+  },
+  "gradient": {
+    "strongWinRate": 0.925,
+    "metrics": {
+      "rallies": 200,
+      "rallyLengthMedian": 5,
+      "rallyLengthP90": 14,
+      "returnability": 0.9521531100478469,
+      "winnerErrorRatio": {
+        "winners": 60,
+        "errors": 140
+      },
+      "shotUsage": {
+        "serve": 0.14347202295552366,
+        "drive": 0.45121951219512196,
+        "drop": 0.08608321377331421,
+        "shovel": 0.01291248206599713,
+        "boast": 0.06527977044476327,
+        "lob": 0.1492109038737446,
+        "kill": 0.09182209469153516
+      },
+      "winningShotShare": {
+        "drive": 0.7166666666666667,
+        "boast": 0.05,
+        "kill": 0.15,
+        "drop": 0.08333333333333333
+      },
+      "speedHistogram": [
+        0,
+        0,
+        219,
+        316,
+        89,
+        65,
+        570,
+        131,
+        4,
+        0
+      ],
+      "rallyWinRateA": 0.925,
+      "deadReasons": {
+        "tin": 61,
+        "out": 79,
+        "double-bounce": 60
+      }
+    }
+  },
+  "corridors": [
+    {
+      "name": "回合長中位數 4–12",
+      "value": "6",
+      "pass": true
+    },
+    {
+      "name": "可回擊率 70–95%",
+      "value": "95.0%",
+      "pass": true
+    },
+    {
+      "name": "制勝:失誤佔比 winner 30–70%",
+      "value": "37.3%",
+      "pass": true
+    },
+    {
+      "name": "無單招制勝 >50%(serve 除外)",
+      "value": "none",
+      "pass": true
+    },
+    {
+      "name": "公平性:同 bot 對打 A 勝率 50±5%",
+      "value": "53.8%",
+      "pass": true
+    },
+    {
+      "name": "技術梯度:強 bot 對弱 bot 勝率 >70%",
+      "value": "92.5%",
+      "pass": true
+    }
+  ]
+}

@@ -10,6 +10,7 @@
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "dynamics": "vite-node tools/dynamics/selfplay.ts",
     "e2e": "playwright test"
   },
   "dependencies": {
