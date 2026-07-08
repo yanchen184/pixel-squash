@@ -8,14 +8,17 @@
  * URL 參數:?seed=42&a=medium&b=medium&rallies=6&speed=1&autoplay=1
  */
 import { BOT_MEDIUM, BOT_STRONG, BOT_WEAK, type BotSkill } from '../engine/bot';
+import { LADDER } from '../engine/ladder';
 import { recordSelfplay, type ReplayFrame } from '../engine/selfplayReplay';
 import { REASON_LABEL } from './labels';
 import { Render3D } from './render3d';
 
+// 快打三級 + 天梯八階都能當觀戰選手(?a=asura&b=fox 這種每日表演賽 URL)
 const SKILLS: Record<string, BotSkill> = {
   strong: BOT_STRONG,
   medium: BOT_MEDIUM,
   weak: BOT_WEAK,
+  ...Object.fromEntries(LADDER.map((r) => [r.id, r.skill])),
 };
 
 function noteOf(f: ReplayFrame): string | null {

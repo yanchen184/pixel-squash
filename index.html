@@ -36,9 +36,16 @@
       #shots button:active { background: #31548f; }
       #menu {
         position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
-        justify-content: center; gap: 14px; background: rgba(10,13,22,.88); z-index: 10;
+        gap: 14px; background: rgba(10,13,22,.88); z-index: 10;
+        overflow-y: auto; padding: 16px 0;
       }
-      #menu h1 { font-size: 40px; margin: 0 0 6px; letter-spacing: 2px; }
+      /* margin:auto 夾心:內容放得下就垂直置中,放不下就整頁捲動(justify center 會裁頭) */
+      #menu h1 { font-size: 40px; margin: auto 0 6px; letter-spacing: 2px; }
+      #menu > a:last-child { margin-bottom: auto; }
+      @media (max-height: 700px) {
+        #menu { gap: 10px; }
+        #menu h1 { font-size: 30px; }
+      }
       #menu .sub { color: #9aa3b8; margin-bottom: 12px; }
       #menu button {
         width: 240px; padding: 13px 0; font-size: 18px; font-family: inherit; border-radius: 12px;
@@ -46,6 +53,9 @@
       }
       #menu button:hover { background: #2a3450; }
       #menu .quick { display: flex; gap: 10px; }
+      #menu button.daily { border-color: #b8862d; background: #2a2312; color: #ffd166; font-weight: 700; }
+      #menu button.daily:hover { background: #3a3018; }
+      #menu .dailyMeta { font-size: 13px; color: #9aa3b8; margin-top: -6px; }
       #menu .quick button { width: 118px; padding: 9px 0; font-size: 14px; color: #aeb8cf; }
       #ladderTitle { font-size: 15px; color: #ffd166; margin-top: 4px; letter-spacing: 1px; }
       #ladder {
@@ -85,6 +95,8 @@
       <h1>PIXEL SQUASH</h1>
       <div class="sub">3D 壁球 · 你(藍)對 AI(橘) · PAR-11 先到 11 分(需贏 2 分)</div>
       <div id="endTitle" class="hud" style="position: static; display: none"></div>
+      <button id="btnDaily" class="daily">每日挑戰</button>
+      <div class="dailyMeta"><span id="dailyBest"></span> · <a id="dailyWatch" href="/replay.html">看今日 AI 表演賽</a></div>
       <div id="ladderTitle">生涯天梯 — 一路打上去</div>
       <div id="ladder"></div>
       <div class="quick">

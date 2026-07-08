@@ -18,6 +18,7 @@ import { REASON_LABEL } from '../render3d/labels';
 import { Render3D } from '../render3d/render3d';
 import { GameAudio } from './audio';
 import { loadCareer, recordWin } from './career';
+import { dailyChallenge, formatBest, loadDailyBest, recordDaily, todayKey } from './daily';
 import { HumanInput } from './input';
 
 function el<T extends HTMLElement>(id: string): T {
@@ -92,10 +93,27 @@ function renderLadder(): void {
 }
 renderLadder();
 
-function start(skill: BotSkill, rung: number | null = null): void {
+// ---- 每日挑戰 ----
+const daily = dailyChallenge(todayKey(new Date()));
+let dailyMode = false;
+const dailyBtn = el<HTMLButtonElement>('btnDaily');
+const dailyBestEl = el<HTMLSpanElement>('dailyBest');
+
+function renderDaily(): void {
+  dailyBtn.textContent = `每日挑戰:${daily.rung.name}(${daily.dateKey})`;
+  dailyBestEl.textContent = `今日最佳:${formatBest(loadDailyBest(daily.dateKey))}`;
+}
+renderDaily();
+el<HTMLAnchorElement>('dailyWatch').href =
+  `/replay.html?seed=${daily.seed}&a=${daily.rung.id}&b=${daily.rung.id}&rallies=6&autoplay=1`;
+dailyBtn.addEventListener('click', () => start(daily.rung.skill, null, true));
+
+function start(skill: BotSkill, rung: number | null = null, isDaily = false): void {
   careerRung = rung;
+  dailyMode = isDaily;
   audio.unlock();
-  prng = createPrng(Date.now() >>> 0);
+  // 每日挑戰用日期 seed(bot 決定性、全球同題);其他模式吃時鐘 seed
+  prng = createPrng(isDaily ? daily.seed : Date.now() >>> 0);
   controllers = { A: { type: 'external' }, B: { type: 'bot', skill } };
   sim = createGame('A');
   acc = 0;
@@ -130,6 +148,15 @@ function onMatchEnd(winner: 'A' | 'B', s: GameSim): void {
       title = `${rung.name} 獲勝 ${s.match.scoreA} : ${s.match.scoreB} — 再挑戰一次`;
     }
     renderLadder();
+  } else if (dailyMode) {
+    const result = {
+      win: winner === 'A',
+      margin: s.match.scoreA - s.match.scoreB,
+      ticks: s.tick,
+    };
+    const { improved } = recordDaily(daily.dateKey, result);
+    title = `${winner === 'A' ? `🏆 每日挑戰達成 ${s.match.scoreA} : ${s.match.scoreB}` : `${daily.rung.name} 守住了今天 ${s.match.scoreA} : ${s.match.scoreB}`}${improved ? ' · 新紀錄!' : ''}`;
+    renderDaily();
   }
   endTitleEl.textContent = title;
   endTitleEl.style.display = 'block';

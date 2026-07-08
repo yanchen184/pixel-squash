@@ -55,11 +55,13 @@ test('遊戲頁:選難度開局、發球進回合、比分推進、HUD 同步', 
     { timeout: 60_000, polling: 250 },
   );
 
-  const s = await page.evaluate(() => window.__gameState!());
-  expect(s.scoreA + s.scoreB).toBeGreaterThanOrEqual(2);
-  // HUD 分數與 sim 一致
-  const hud = await page.locator('#score').textContent();
-  expect(hud).toContain(`${s.scoreA} : ${s.scoreB}`);
+  // sim 分數與 HUD 同一瞬間取(分開取的話比分可能在兩次讀之間又推進 → 競態)
+  const snap = await page.evaluate(() => ({
+    state: window.__gameState!(),
+    hud: document.getElementById('score')?.textContent ?? '',
+  }));
+  expect(snap.state.scoreA + snap.state.scoreB).toBeGreaterThanOrEqual(2);
+  expect(snap.hud).toContain(`${snap.state.scoreA} : ${snap.state.scoreB}`);
 });
 
 test('M1 品質閃字:玩家追球揮拍,#quality 真的在畫面亮起', async ({ page }) => {
