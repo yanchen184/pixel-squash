@@ -61,7 +61,7 @@ export type SimEvent =
     }
   | { readonly type: 'rally-end'; readonly winner: PlayerId; readonly loser: PlayerId; readonly reason: DeadReason }
   | { readonly type: 'match-end'; readonly winner: PlayerId }
-  | { readonly type: 'ball-wall'; readonly wall: WallId; readonly speed: number }
+  | { readonly type: 'ball-wall'; readonly wall: WallId; readonly speed: number; readonly point: Vec3 }
   | { readonly type: 'ball-floor'; readonly point: Vec3 };
 
 export interface StepOutput {
@@ -257,7 +257,7 @@ export function stepGame(
     for (const ev of ballEvents) {
       // 渲染/音效事件:無論規則層是否已收束都發(拍到牆/地的聲音是物理事實)
       if (ev.type === 'wall-hit') {
-        events.push({ type: 'ball-wall', wall: ev.wall, speed: ev.speed });
+        events.push({ type: 'ball-wall', wall: ev.wall, speed: ev.speed, point: ev.point });
       } else if (ev.type === 'floor-bounce') {
         events.push({ type: 'ball-floor', point: ev.point });
       }

@@ -5,12 +5,13 @@
  * P4:程序化球員(player3d)+ 揮拍動畫 + 鏡頭微追蹤球。
  */
 import * as THREE from 'three';
-import type { Vec3 } from '../engine/ball';
-import { COURT_D, COURT_W } from '../engine/ball';
+import type { Vec3, WallId } from '../engine/ball';
+import { COURT_D, COURT_H, COURT_W } from '../engine/ball';
 import type { PlayerId } from '../engine/rules';
 import type { GameSim } from '../engine/sim';
 import { buildCourt } from './court3d';
 import { Player3D } from './player3d';
+import { Crowd, ImpactPool, makeSpritePlayerA, makeSpritePlayerB, SpritePlayer } from './sprites';
 
 /** 渲染所需的最小狀態切面 */
 export interface RenderState {
@@ -19,6 +20,8 @@ export interface RenderState {
   readonly playerB: Vec3;
   /** 這 tick 有人揮拍 → 觸發揮拍動畫 */
   readonly hitBy?: PlayerId | null;
+  /** 這 tick 球撞牆 → 火花特效(引擎座標) */
+  readonly wallHit?: { readonly wall: WallId; readonly point: Vec3 } | null;
 }
 
 export function renderStateOf(sim: GameSim, hitBy: PlayerId | null = null): RenderState {
@@ -35,14 +38,34 @@ function toWorld(p: Vec3, out: THREE.Vector3): THREE.Vector3 {
   return out.set(p.x - COURT_W / 2, p.z, p.y - COURT_D / 2);
 }
 
+/** 牆面 → 世界座標法線(火花面向) */
+const WALL_NORMAL: Record<WallId, readonly [number, number, number]> = {
+  front: [0, 0, 1],
+  back: [0, 0, -1],
+  left: [1, 0, 0],
+  right: [-1, 0, 0],
+  ceiling: [0, -1, 0],
+};
+
+/** Player3D 與 SpritePlayer 的共同介面(渲染層可切換) */
+interface PlayerVisual {
+  readonly group: THREE.Group;
+  pose(x: number, z: number, faceX: number, faceZ: number): void;
+  triggerSwing(): void;
+  update(dt: number): void;
+}
+
 export class Render3D {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.PerspectiveCamera;
   private readonly ball: THREE.Mesh;
-  private readonly playerA: Player3D;
-  private readonly playerB: Player3D;
+  private readonly playerA: PlayerVisual;
+  private readonly playerB: PlayerVisual;
+  private readonly crowd: Crowd;
+  private readonly impacts: ImpactPool;
   private readonly tmp = new THREE.Vector3();
+  private readonly tmpN = new THREE.Vector3();
   private readonly lookAt = new THREE.Vector3(0, 0.9, -COURT_D / 4);
   private lastTime: number | null = null;
 
@@ -71,9 +94,16 @@ export class Render3D {
       new THREE.SphereGeometry(0.07, 20, 14),
       new THREE.MeshStandardMaterial({ color: 0x15151a, roughness: 0.35 }),
     );
-    this.playerA = new Player3D(0x3b82f6);
-    this.playerB = new Player3D(0xf97316);
+    // P5 預設 sprite 像素球員;網址帶 ?c3d 退回程序化 3D 版(fallback)
+    const useSprites = !window.location.search.includes('c3d');
+    this.playerA = useSprites ? makeSpritePlayerA() : new Player3D(0x3b82f6);
+    this.playerB = useSprites ? makeSpritePlayerB() : new Player3D(0xf97316);
     this.scene.add(this.ball, this.playerA.group, this.playerB.group);
+
+    // 前牆上方觀眾席 + 擊牆火花池
+    this.crowd = new Crowd(COURT_W, COURT_H + 0.08, -COURT_D / 2);
+    this.impacts = new ImpactPool();
+    this.scene.add(this.crowd.group, this.impacts.group);
   }
 
   resize(width: number, height: number): void {
@@ -100,6 +130,11 @@ export class Render3D {
     this.playerB.pose(this.tmp.x, this.tmp.z, faceX, faceZ);
     if (state.hitBy === 'A') this.playerA.triggerSwing();
     else if (state.hitBy === 'B') this.playerB.triggerSwing();
+    if (state.wallHit) {
+      toWorld(state.wallHit.point, this.tmp);
+      const n = WALL_NORMAL[state.wallHit.wall];
+      this.impacts.spawn(this.tmp, this.tmpN.set(n[0], n[1], n[2]));
+    }
   }
 
   render(): void {
@@ -108,6 +143,10 @@ export class Render3D {
     this.lastTime = now;
     this.playerA.update(dt);
     this.playerB.update(dt);
+    this.crowd.update(dt);
+    this.impacts.update(dt);
+    if (this.playerA instanceof SpritePlayer) this.playerA.billboard(this.camera.position);
+    if (this.playerB instanceof SpritePlayer) this.playerB.billboard(this.camera.position);
     // 鏡頭微追蹤球的橫向(緩慢 lerp,球不在就回中)
     const targetX = this.ball.visible ? this.ball.position.x * 0.28 : 0;
     this.camera.position.x += (targetX - this.camera.position.x) * 0.04;

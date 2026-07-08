@@ -16,3 +16,6 @@ playwright-report/
 /*.png
 /*.txt
 !README*
+
+# codex 生圖中間產物
+tmp/

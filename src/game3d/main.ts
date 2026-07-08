@@ -15,7 +15,7 @@ import {
 } from '../engine/sim';
 import { LADDER } from '../engine/ladder';
 import { REASON_LABEL } from '../render3d/labels';
-import { Render3D } from '../render3d/render3d';
+import { Render3D, type RenderState } from '../render3d/render3d';
 import { GameAudio } from './audio';
 import { loadCareer, recordWin } from './career';
 import { dailyChallenge, formatBest, loadDailyBest, recordDaily, todayKey } from './daily';
@@ -280,6 +280,7 @@ function stepOnce(): void {
   const out = stepGame(sim, controllers, { A: cmdA, B: IDLE_INPUT }, prng);
   sim = out.sim;
   let hitBy: 'A' | 'B' | null = null;
+  let wallHit: RenderState['wallHit'] = null;
   for (const ev of out.events) {
     if (ev.type === 'hit') {
       hitBy = ev.player;
@@ -291,6 +292,7 @@ function stepOnce(): void {
       }
     } else if (ev.type === 'ball-wall') {
       audio.wallHit(ev.speed);
+      wallHit = { wall: ev.wall, point: ev.point };
     } else if (ev.type === 'ball-floor') {
       audio.floorBounce();
     } else if (ev.type === 'rally-end') {
@@ -314,6 +316,7 @@ function stepOnce(): void {
     playerA: sim.playerA.pos,
     playerB: sim.playerB.pos,
     hitBy,
+    wallHit,
   });
 }
 
