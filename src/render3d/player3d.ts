@@ -6,6 +6,18 @@
  */
 import * as THREE from 'three';
 
+// codex 生成的材質貼圖(公用一份,所有球員共享,零重複載入)。
+// 檔在 public/textures/ → 執行期路徑 /textures/xxx.png(vite base=/)。
+const texLoader = new THREE.TextureLoader();
+function loadTex(path: string, srgb = true): THREE.Texture {
+  const t = texLoader.load(path);
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+const TEX_FACE = loadTex('/textures/face.png'); // 五官貼片(頭正面)
+const TEX_CARBON = loadTex('/textures/racket.png'); // 碳纖織紋(拍框)
+
 const LEG_H = 0.5;
 const LEG_R = 0.075;
 const HIP_Y = LEG_H; // 骨盆高
@@ -36,9 +48,13 @@ function skinMat(): THREE.MeshStandardMaterial {
 function makeRacket(): THREE.Group {
   const g = new THREE.Group();
   const handleLen = 0.22;
+  // 握把:碳纖織紋(圓柱面積夠,看得清紋理)
+  const carbon = TEX_CARBON.clone();
+  carbon.wrapS = carbon.wrapT = THREE.RepeatWrapping;
+  carbon.repeat.set(3, 2);
   const handle = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.028, 0.024, handleLen, 10),
-    new THREE.MeshStandardMaterial({ color: 0x22252c, roughness: 0.55 }),
+    new THREE.CylinderGeometry(0.028, 0.024, handleLen, 12),
+    new THREE.MeshStandardMaterial({ map: carbon, color: 0x8896a0, roughness: 0.4, metalness: 0.5 }),
   );
   handle.position.y = handleLen / 2;
   g.add(handle);
@@ -49,13 +65,13 @@ function makeRacket(): THREE.Group {
   );
   throat.position.y = handleLen + 0.04;
   g.add(throat);
-  // 拍框(橢圓,立在頸上)
+  // 拍框(橢圓,立在頸上)— 清爽金屬藍框
   const frameMat = new THREE.MeshStandardMaterial({
-    color: 0x1f6f8b,
-    roughness: 0.35,
-    metalness: 0.3,
+    color: 0x1f9bb5,
+    roughness: 0.3,
+    metalness: 0.55,
   });
-  const frame = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.02, 10, 28), frameMat);
+  const frame = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.018, 12, 32), frameMat);
   frame.position.y = handleLen + 0.04 + 0.15 + 0.02;
   g.add(frame);
   const strings = new THREE.Mesh(
@@ -185,6 +201,19 @@ export class Player3D {
     head.scale.set(0.92, 1.05, 0.92);
     head.position.y = SHOULDER_Y - HIP_Y + 0.05 + NECK_H + HEAD_R * 0.85;
     this.torso.add(head);
+    // 臉貼片:朝前(+Z)貼在頭球正面,微彎讓五官貼合球面
+    const faceMat = new THREE.MeshStandardMaterial({
+      map: TEX_FACE,
+      transparent: true,
+      roughness: 0.8,
+    });
+    const face = new THREE.Mesh(
+      new THREE.SphereGeometry(HEAD_R * 0.99, 16, 12, Math.PI * 0.72, Math.PI * 0.56, Math.PI * 0.26, Math.PI * 0.5),
+      faceMat,
+    );
+    face.scale.copy(head.scale);
+    face.position.copy(head.position);
+    this.torso.add(face);
     // 頭髮(上半深色殼)
     const hair = new THREE.Mesh(
       new THREE.SphereGeometry(HEAD_R * 1.02, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.62),
