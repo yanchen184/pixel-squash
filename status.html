@@ -141,7 +141,7 @@
 <header>
   <div class="wrap">
     <h1><span class="emoji">🎾</span> Pixel Squash</h1>
-    <div class="sub">真 3D 壁球 · TypeScript + Three.js · SI 單位決定性 60Hz 引擎 · 你對 AI · 揮拍手感 + 8 階天梯 + 每日挑戰 + 新手教學</div>
+    <div class="sub">真 3D 壁球 · TypeScript + Three.js · SI 單位決定性 60Hz 引擎 · 你對 AI · 揮拍手感 + 8 階天梯 + 每日挑戰 + 新手教學 + 像素 sprite 動畫</div>
     <div class="meta-row">
       <span class="chip">里程碑 <b>M1–M4 全完成 ✅</b></span>
       <span class="chip">vitest <b>225 / 225 綠(24 檔)</b></span>
@@ -166,6 +166,7 @@
       <div class="ms"><div class="k">M2 · 迴圈</div><div class="t">8 階職業天梯</div><div class="d">阿新→修羅 8 個具名 bot 人格,反應/失誤梯度單調;localStorage 存進度。</div></div>
       <div class="ms"><div class="k">M3 · 迴圈</div><div class="t">每日挑戰</div><div class="d">日期 seed 決定當日對手,全世界同題;本地最佳紀錄 + 可分享 AI 對打重播。</div></div>
       <div class="ms"><div class="k">M4 · 上架</div><div class="t">教學 + 設定 + favicon</div><div class="d">互動式 5 步新手教學、暫停面板、音量設定持久化、分頁 icon。</div></div>
+      <div class="ms"><div class="k">P5 · 視覺</div><div class="t">sprite sheet 動畫</div><div class="d">codex 生成 4×4(16 幀)像素圖:球員待機/跑步/正反手揮拍、觀眾席輪播、擊牆火花;billboard 渲染。</div></div>
     </div>
   </section>
 
@@ -196,6 +197,15 @@
           <li><b>WebAudio 合成</b> <span>擊球/牆反彈/得分即時合成,無音檔資產</span></li>
           <li><b>手感回饋</b> <span>PERFECT / GOOD 音色不同,聽得出打得好不好</span></li>
           <li><b>音量持久化</b> <span>設定面板調音量,localStorage 記住</span></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>👾 像素 sprite 動畫 <span class="tag-new">P5</span></h3>
+        <ul>
+          <li><b>16 幀球員</b> <span>4×4 sprite sheet:待機呼吸/跑步/正反手揮拍四列,依速度與揮拍事件切列;圓柱 billboard 面向鏡頭</span></li>
+          <li><b>觀眾席</b> <span>前牆上方 4 面板錯相輪播(拍手/歡呼),避免同步複製感</span></li>
+          <li><b>擊牆火花</b> <span>引擎 ball-wall 事件帶撞擊點,加法混合火花在撞擊處播 16 幀</span></li>
+          <li><b>可退回</b> <span>網址帶 <code>?c3d</code> 切回程序化 3D 球員(fallback)</span></li>
         </ul>
       </div>
       <div class="card">
