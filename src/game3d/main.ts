@@ -50,7 +50,12 @@ window.addEventListener('resize', fit);
 fit();
 
 const input = new HumanInput(canvas);
-if (navigator.maxTouchPoints > 0) shotsEl.hidden = false;
+// 觸控球路鈕只在對局中顯示;主選單/結局畫面隱藏,否則 position:fixed 的鈕會
+// 透出疊在選單右緣(iPhone/Pixel 實測破版)。由 setShotsVisible 在開局/回選單切換。
+const isTouch = navigator.maxTouchPoints > 0;
+const setShotsVisible = (visible: boolean): void => {
+  shotsEl.hidden = !(isTouch && visible);
+};
 el<HTMLButtonElement>('btnDrive').addEventListener('pointerdown', () => input.pressShot('drive'));
 el<HTMLButtonElement>('btnLob').addEventListener('pointerdown', () => input.pressShot('lob'));
 el<HTMLButtonElement>('btnDrop').addEventListener('pointerdown', () => input.pressShot('drop'));
@@ -102,6 +107,7 @@ el<HTMLButtonElement>('btnQuit').addEventListener('click', () => {
   btnPauseEl.hidden = true;
   tutorialActive = false;
   tutorialEl.hidden = true;
+  setShotsVisible(false);
   scoreEl.textContent = '0 : 0';
   serveHintEl.textContent = '';
   menuEl.style.display = 'flex';
@@ -200,6 +206,7 @@ function start(skill: BotSkill, rung: number | null = null, isDaily = false): vo
   btnPauseEl.hidden = false;
   tutorialActive = false;
   tutorialEl.hidden = true;
+  setShotsVisible(true);
   audio.unlock();
   // 每日挑戰用日期 seed(bot 決定性、全球同題);其他模式吃時鐘 seed
   prng = createPrng(isDaily ? daily.seed : Date.now() >>> 0);
@@ -259,6 +266,7 @@ function onMatchEnd(winner: 'A' | 'B', s: GameSim): void {
   btnPauseEl.hidden = true;
   tutorialActive = false;
   tutorialEl.hidden = true;
+  setShotsVisible(false);
   for (const b of ['btnWeak', 'btnMedium', 'btnStrong']) {
     const btn = el<HTMLButtonElement>(b);
     if (!btn.textContent!.startsWith('再來一場:')) btn.textContent = `再來一場:${btn.textContent}`;

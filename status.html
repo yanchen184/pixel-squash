@@ -49,6 +49,7 @@
   h2.pink{border-color:var(--neon-pink);}
   h2.green{border-color:var(--neon-green);}
   h2.violet{border-color:var(--neon-violet);}
+  h2.amber{border-color:var(--neon-amber);}
   .section-note{color:var(--muted); font-size:13px; margin:0 0 18px 16px;}
   .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:14px;}
   .card{
@@ -59,6 +60,24 @@
   .card ul{margin:0; padding-left:18px;}
   .card li{font-size:13.5px; margin:3px 0; color:var(--ink);}
   .card li span{color:var(--muted);}
+  .tag-new{
+    display:inline-block; font-size:10.5px; font-weight:800; letter-spacing:.5px;
+    background:rgba(255,79,157,.18); color:var(--neon-pink); border:1px solid rgba(255,79,157,.45);
+    border-radius:5px; padding:1px 6px; margin-left:6px; vertical-align:middle;
+  }
+  .ladder{display:flex; flex-wrap:wrap; gap:8px; margin:6px 0 4px;}
+  .rung{
+    display:flex; align-items:center; gap:7px; background:var(--panel); border:1px solid var(--line);
+    border-radius:999px; padding:5px 13px 5px 8px; font-size:13px;
+  }
+  .rung b{
+    display:inline-flex; width:20px; height:20px; align-items:center; justify-content:center;
+    background:var(--panel2); border-radius:50%; font-size:11px; color:var(--neon-amber);
+  }
+  .rung .who{color:var(--ink); font-weight:600;}
+  .rung .trait{color:var(--muted); font-size:12px;}
+  .rung.top{border-color:rgba(255,79,157,.45);}
+  .rung.top .who{color:var(--neon-pink);}
   table{width:100%; border-collapse:collapse; font-size:13.5px; margin-top:6px;}
   thead th{
     text-align:left; padding:9px 10px; color:var(--muted); font-weight:600;
@@ -88,6 +107,7 @@
     background:rgba(72,224,138,.14); color:var(--neon-green); border:1px solid rgba(72,224,138,.4);
     border-radius:999px; padding:2px 11px; font-size:12.5px; font-weight:700; white-space:nowrap;
   }
+  .test-file.m .count{background:rgba(255,79,157,.14); color:var(--neon-pink); border-color:rgba(255,79,157,.4);}
   .layer-row{
     display:flex; gap:10px; align-items:flex-start; background:var(--panel); border:1px solid var(--line);
     border-radius:10px; padding:13px 16px; margin-bottom:10px;
@@ -103,6 +123,11 @@
   .layer-body{font-size:13.5px;}
   .layer-body b{color:var(--ink);}
   .layer-body .s{color:var(--muted);}
+  .milestones{display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px;}
+  .ms{background:var(--panel); border:1px solid var(--line); border-radius:11px; padding:13px 15px;}
+  .ms .k{font-size:12px; color:var(--neon-blue); font-weight:800; letter-spacing:.6px;}
+  .ms .t{font-size:14px; color:var(--ink); font-weight:700; margin:3px 0 6px;}
+  .ms .d{font-size:12.5px; color:var(--muted);}
   footer{
     margin-top:48px; padding-top:20px; border-top:1px solid var(--line);
     text-align:center; color:var(--muted); font-size:12.5px;
@@ -116,84 +141,138 @@
 <header>
   <div class="wrap">
     <h1><span class="emoji">🎾</span> Pixel Squash</h1>
-    <div class="sub">真 3D 壁球 · TypeScript + Three.js · SI 單位決定性 60Hz 引擎 · 你對 AI(三難度)· v2 重寫完成</div>
+    <div class="sub">真 3D 壁球 · TypeScript + Three.js · SI 單位決定性 60Hz 引擎 · 你對 AI · 揮拍手感 + 8 階天梯 + 每日挑戰 + 新手教學</div>
     <div class="meta-row">
-      <span class="chip">v2 里程碑 <b>P1–P5 全完成 ✅</b></span>
-      <span class="chip">vitest <b>169 / 169 綠(20 檔)</b></span>
-      <span class="chip">e2e <b>2 / 2 綠</b></span>
-      <span class="chip">L4 走廊 <b>6 / 6 ✅</b></span>
+      <span class="chip">里程碑 <b>M1–M4 全完成 ✅</b></span>
+      <span class="chip">vitest <b>225 / 225 綠(24 檔)</b></span>
+      <span class="chip">e2e <b>14 / 14 綠(5 檔)</b></span>
+      <span class="chip">L4 走廊 <b>全綠 ✅</b></span>
       <span class="chip">線上 <a href="https://pixel-squash.web.app" target="_blank">pixel-squash.web.app</a></span>
       <span class="chip">重播 <a href="https://pixel-squash.web.app/replay.html?seed=20260707&a=strong&b=weak&rallies=6&autoplay=1" target="_blank">AI 對打觀戰 →</a></span>
-      <span class="chip">最後更新 <b id="updated">2026-07-07</b></span>
+      <span class="chip">最後更新 <b id="updated">2026-07-08</b></span>
     </div>
   </div>
 </header>
 
 <div class="wrap">
 
+  <!-- ============ 里程碑 ============ -->
+  <section>
+    <h2 class="amber">🏗️ 里程碑進度</h2>
+    <p class="section-note">v2 引擎重寫(P1–P5)完成後,商品化沿「有趣 = 技巧表現空間、耐玩 = 迴圈結構」推進 M1–M4,全部收口。</p>
+    <div class="milestones">
+      <div class="ms"><div class="k">v2 · P1–P5</div><div class="t">真 3D 引擎重寫</div><div class="d">物理核搬進 src/engine/(SI 決定性),渲染改 Three.js;遊戲/重播/測試同一條 stepGame() 路徑。</div></div>
+      <div class="ms"><div class="k">M1 · 手感</div><div class="t">揮拍時機 + 風險報酬 + 音效</div><div class="d">揮拍甜蜜點(PERFECT/GOOD/OK)、球路風險報酬取捨、程序化音效。技巧表現空間。</div></div>
+      <div class="ms"><div class="k">M2 · 迴圈</div><div class="t">8 階職業天梯</div><div class="d">阿新→修羅 8 個具名 bot 人格,反應/失誤梯度單調;localStorage 存進度。</div></div>
+      <div class="ms"><div class="k">M3 · 迴圈</div><div class="t">每日挑戰</div><div class="d">日期 seed 決定當日對手,全世界同題;本地最佳紀錄 + 可分享 AI 對打重播。</div></div>
+      <div class="ms"><div class="k">M4 · 上架</div><div class="t">教學 + 設定 + favicon</div><div class="d">互動式 5 步新手教學、暫停面板、音量設定持久化、分頁 icon。</div></div>
+    </div>
+  </section>
+
   <!-- ============ 功能 ============ -->
   <section>
-    <h2 class="pink">🕹️ 專案功能(v2)</h2>
-    <p class="section-note">v2 全面重寫:物理核搬進 <code>src/engine/</code>(SI 單位、決定性),渲染改 Three.js 真 3D。遊戲、重播、全部五層測試走的都是同一條 <code>stepGame()</code> 路徑 —— 測到的就是玩到的。</p>
+    <h2 class="pink">🕹️ 專案功能</h2>
+    <p class="section-note">物理核在 <code>src/engine/</code>(SI 單位、決定性),渲染 Three.js 真 3D。遊戲、重播、五層測試走同一條 <code>stepGame()</code> —— 測到的就是玩到的。</p>
     <div class="grid">
       <div class="card">
         <h3>🎮 對戰模式(/ 主頁)</h3>
         <ul>
-          <li><b>你 vs AI</b> <span>藍=你、橘=AI,弱/中/強三難度</span></li>
-          <li><b>PAR-11 計分</b> <span>先到 11 分、需淨勝 2 分,發球權跟著得分走</span></li>
+          <li><b>你 vs AI</b> <span>藍=你、橘=AI,PAR-11 先到 11 分需淨勝 2 分</span></li>
           <li><b>死因標語</b> <span>每回合結束顯示誰得分+原因(tin/出界/兩彈未接…)</span></li>
-          <li><b>終局重賽</b> <span>勝負畫面 + 「再來一場」按原難度或換難度</span></li>
+          <li><b>終局重賽</b> <span>勝負畫面 +「再來一場」</span></li>
         </ul>
       </div>
       <div class="card">
-        <h3>🏓 六球路 + 揮拍手感</h3>
+        <h3>🏓 揮拍手感 <span class="tag-new">M1</span></h3>
         <ul>
-          <li><b>球路</b> <span>drive 抽球 / lob 挑高 / drop 放小 / kill 殺球 / boast 反角(bot)/ serve 發球</span></li>
-          <li><b>按鍵緩衝揮拍</b> <span>按下開 8-tick 揮拍窗,進拍面就打 —— 有 timing 感不吃玄學</span></li>
-          <li><b>瞄準</b> <span>揮拍當下按住 ←/→ 打向那側邊線,預設打遠角</span></li>
-          <li><b>解不出就降級</b> <span>選的球路物理解不出 → 自動改鏟球救回,不憑空消失</span></li>
+          <li><b>時機甜蜜點</b> <span>球彈起瞬間揮拍 → PERFECT / GOOD / OK,吃 timing 不吃玄學</span></li>
+          <li><b>風險報酬</b> <span>殺球/放小回報高但容錯窄,挑高穩但被動;球路是取捨不是亂點</span></li>
+          <li><b>六球路</b> <span>drive 抽 / lob 挑 / drop 放 / kill 殺 / boast 反角 / serve 發;解不出自動降級鏟球救回</span></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>🔊 程序化音效 <span class="tag-new">M1</span></h3>
+        <ul>
+          <li><b>WebAudio 合成</b> <span>擊球/牆反彈/得分即時合成,無音檔資產</span></li>
+          <li><b>手感回饋</b> <span>PERFECT / GOOD 音色不同,聽得出打得好不好</span></li>
+          <li><b>音量持久化</b> <span>設定面板調音量,localStorage 記住</span></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>🪜 8 階職業天梯 <span class="tag-new">M2</span></h3>
+        <ul>
+          <li><b>具名 bot 人格</b> <span>從菜鳥到魔王,反應速度沿天梯單調變快</span></li>
+          <li><b>晉級解鎖</b> <span>贏了才開下一階,localStorage 記進度</span></li>
+          <li><b>梯度有測</b> <span>相鄰階高階勝率不倒掛、首尾勝率 >80%(engine-ladder 26 測守)</span></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>📅 每日挑戰 <span class="tag-new">M3</span></h3>
+        <ul>
+          <li><b>日期決定對手</b> <span>date → FNV-1a seed → 當日對手,全世界同題(UTC 對齊)</span></li>
+          <li><b>本地最佳紀錄</b> <span>勝負 > 分差 > 用時 排序,更差不覆蓋、跨日作廢</span></li>
+          <li><b>可分享重播</b> <span>當日 AI 對打凍成 seed,朋友開同 URL 看一模一樣的比賽</span></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>🎓 新手教學 + 暫停 <span class="tag-new">M4</span></h3>
+        <ul>
+          <li><b>互動式 5 步</b> <span>移動 → 發球 → 回擊 → 抓節奏 → 換球路,做到才推進下一步</span></li>
+          <li><b>暫停面板</b> <span>Esc 暫停:繼續 / 音量 / 回主選單</span></li>
+          <li><b>分頁 icon</b> <span>favicon 32/180,base64 inline,線上分頁不是預設地球</span></li>
         </ul>
       </div>
       <div class="card">
         <h3>⌨️ 鍵盤 + 📱 觸控</h3>
         <ul>
           <li><b>移動</b> <span>WASD / 方向鍵(上=往前牆)</span></li>
-          <li><b>擊球鍵</b> <span>空白/J=抽球 · K=挑高 · L=放小 · ;=殺球;輪到你發球按任一擊球鍵</span></li>
-          <li><b>觸控</b> <span>左半螢幕虛擬搖桿 + 右側四顆球路鈕(桌機自動隱藏)</span></li>
+          <li><b>擊球鍵</b> <span>空白/J=抽 · K=挑 · L=放 · ;=殺;輪到你發球按任一擊球鍵</span></li>
+          <li><b>觸控</b> <span>左半螢幕虛擬搖桿 + 右側球路鈕(桌機自動隱藏)</span></li>
         </ul>
       </div>
       <div class="card">
         <h3>🏟️ 真 3D 渲染(Three.js)</h3>
         <ul>
           <li><b>標準球場</b> <span>四牆 + tin / 發球線 / 界外線 + 玻璃後牆,實際 SI 尺寸</span></li>
-          <li><b>程序化關節球員</b> <span>軀幹/四肢/球拍,揮拍 pose、跑步擺臂擺腿動畫</span></li>
-          <li><b>攝影機跟拍</b> <span>後上方視角平滑跟球,深度感真實(非投影模擬)</span></li>
+          <li><b>程序化關節球員</b> <span>軀幹/四肢/球拍,揮拍 pose、跑步擺臂擺腿</span></li>
+          <li><b>攝影機跟拍</b> <span>後上方視角平滑跟球,真實深度感</span></li>
         </ul>
       </div>
       <div class="card">
         <h3>🎬 決定性重播(/replay.html)</h3>
         <ul>
-          <li><b>seed 即重播檔</b> <span>URL 帶 seed + bot 等級 = 完整重播,同 URL 重載逐 tick bit 相同</span></li>
-          <li><b>鏈式 hash 可肉眼對</b> <span>HUD 顯示 FNV-1a 最終 hash,跟 blessed 值直接比對</span></li>
+          <li><b>seed 即重播檔</b> <span>URL 帶 seed + bot 等級 = 完整重播,逐 tick bit 相同</span></li>
+          <li><b>鏈式 hash 可肉眼對</b> <span>HUD 顯示 FNV-1a 最終 hash,跟 blessed 值直接比</span></li>
           <li><b>播放控制</b> <span>播放/暫停、0.5–4× 倍速、時間軸拖曳</span></li>
         </ul>
       </div>
       <div class="card">
         <h3>⚙️ 決定性引擎(src/engine/)</h3>
         <ul>
-          <li><b>60Hz 固定步進</b> <span>SI 單位(公尺/秒),重力/阻力/四牆反彈</span></li>
+          <li><b>60Hz 固定步進</b> <span>SI 單位,重力/阻力/四牆反彈</span></li>
           <li><b>決定性 lint</b> <span>引擎層只准 +−×÷ sqrt imul,禁 Date/Math.random(vitest 強制)</span></li>
           <li><b>mulberry32 PRNG</b> <span>唯一隨機源,seed 進 seed 出</span></li>
-          <li><b>AI bot</b> <span>預測落點跑位 + 球路決策,弱/中/強=反應與失誤率梯度</span></li>
         </ul>
       </div>
+    </div>
+
+    <p class="section-note" style="margin-top:22px; margin-bottom:8px;">🪜 <b style="color:var(--ink)">M2 天梯 8 階</b>(反應速度由左至右單調變快):</p>
+    <div class="ladder">
+      <span class="rung"><b>1</b><span class="who">阿新</span><span class="trait">菜鳥</span></span>
+      <span class="rung"><b>2</b><span class="who">長城</span><span class="trait">防守牆</span></span>
+      <span class="rung"><b>3</b><span class="who">小刀</span><span class="trait">刁鑽切</span></span>
+      <span class="rung"><b>4</b><span class="who">重砲</span><span class="trait">強攻</span></span>
+      <span class="rung"><b>5</b><span class="who">節拍器</span><span class="trait">穩定</span></span>
+      <span class="rung"><b>6</b><span class="who">獵犬</span><span class="trait">跑動</span></span>
+      <span class="rung"><b>7</b><span class="who">老狐狸</span><span class="trait">戰術</span></span>
+      <span class="rung top"><b>8</b><span class="who">修羅</span><span class="trait">魔王</span></span>
     </div>
   </section>
 
   <!-- ============ 驗收 ============ -->
   <section>
-    <h2 class="green">✅ 驗收目標(8 項全通過)</h2>
-    <p class="section-note">v2 驗收 = 五層測試金字塔逐層真跑 + 線上 round-trip。每項都是實際執行取結果,不以「程式邏輯看起來對」代替。</p>
+    <h2 class="green">✅ 驗收目標(全通過)</h2>
+    <p class="section-note">驗收 = 五層測試金字塔逐層真跑 + 線上 round-trip。每項都是實際執行取結果,不以「程式邏輯看起來對」代替。</p>
     <div class="legend">
       <div><span class="verify-badge vA">A</span> 自動化:vitest / harness 腳本實跑,pass/fail 數字說話</div>
       <div><span class="verify-badge vB">B</span> 截圖肉眼:Playwright 截真實渲染,人工判讀畫面</div>
@@ -205,13 +284,19 @@
       </thead>
       <tbody>
         <tr><td class="num">1</td><td><b>L1 不變量</b>:球永遠在四牆界內、無 NaN、能量不憑空增加;同 seed 逐 tick hash bit 相同(決定性)</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
-        <tr><td class="num">2</td><td><b>L2 現實錨點</b>:重力落下時間、牆反彈保留率、球速落在真實壁球數量級(對照物理常識,不是自圓其說)</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">2</td><td><b>L2 現實錨點</b>:重力落下時間、牆反彈保留率、球速落在真實壁球數量級(對照物理常識)</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
         <tr><td class="num">3</td><td><b>L3 規則矩陣</b>:29 條案例覆蓋 PAR-11 計分/換發、發球合法性(tin/發球框/前牆)、四種死因判定</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
-        <tr><td class="num">4</td><td><b>L4 代理指標走廊 6/6</b>:bot 自打統計 — 回合長中位數 6 拍(走廊 3–20)、可回擊率 95.0%(≥70%)、winner:error 37.3%、無單一球路 >50%、左右公平性 53.8%、技術梯度:強 bot 對弱 bot 勝率 92.5%</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
-        <tr><td class="num">5</td><td><b>L5 黃金重播 blessing</b>:2 條人工看過的重播凍成 seed+hash(seed 42 → 1165 ticks, hash 2080951699;seed 20260707 → 1304 ticks, hash 2710714533);改壞手感 = hash 變 = CI 紅,必須重新人工賜福</td><td><span class="verify-badge vA">A</span><span class="verify-badge vB">B</span></td><td class="pass">✅</td></tr>
-        <tr><td class="num">6</td><td><b>遊戲可玩 e2e</b>:選難度開局 → 提示發球 → 空白鍵發球進回合 → 比分推進到 2 分 → HUD 與引擎分數一致(game.spec.ts)</td><td><span class="verify-badge vC">C</span></td><td class="pass">✅</td></tr>
-        <tr><td class="num">7</td><td><b>重播檢視器 e2e</b>:/replay.html 載入 → 自動播放 tick 前進 → 最終 hash 與 blessed 值相等(replay-viewer.spec.ts)</td><td><span class="verify-badge vC">C</span></td><td class="pass">✅</td></tr>
-        <tr><td class="num">8</td><td><b>線上 round-trip</b>:pixel-squash.web.app 真開真玩(開局、發球、進回合,截圖驗畫面;桌機觸控鈕正確隱藏);線上 /replay.html seed 42 hash === 2080951699</td><td><span class="verify-badge vB">B</span><span class="verify-badge vC">C</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">4</td><td><b>M1 揮拍品質</b>:PERFECT/GOOD/OK 時機分級正確、風險報酬對稱、品質層只污染人類擊球不污染 bot(engine-quality 12 測)</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">5</td><td><b>M2 天梯梯度</b>:8 階反應速度單調、相鄰階高階勝率不倒掛、首尾(修羅 vs 阿新)勝率 >80%、每階鏡像公平性 50±7%(engine-ladder 26 測)</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">6</td><td><b>M3 每日挑戰</b>:同日同 seed、跨日必換(連 60 天無碰撞)、UTC 對齊、紀錄比較(勝負>分差>用時)+ localStorage round-trip(engine-daily 10 測)</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">7</td><td><b>M4 教學/設定</b>:5 步教學逐步推進條件正確、設定壞資料回預設、音量夾在 0..1(tutorial-settings 5 測)</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">8</td><td><b>L4 代理指標走廊</b>:bot 自打統計 — 回合長、可回擊率、winner:error、無單一球路獨大、左右公平性、技術梯度全在界內(harness 走廊)</td><td><span class="verify-badge vA">A</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">9</td><td><b>L5 黃金重播 blessing</b>:人工看過的重播凍成 seed+hash;改壞手感 = hash 變 = CI 紅,必須重新人工賜福(engine-golden-replay 3 測)</td><td><span class="verify-badge vA">A</span><span class="verify-badge vB">B</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">10</td><td><b>遊戲可玩 e2e</b>:選難度開局 → 提示發球 → 發球進回合 → 比分推進 → HUD 與引擎分數一致(game.spec.ts)</td><td><span class="verify-badge vC">C</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">11</td><td><b>天梯/每日 e2e</b>:天梯選階開局、每日挑戰載入當日對手(career.spec.ts / daily.spec.ts)</td><td><span class="verify-badge vC">C</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">12</td><td><b>教學/暫停 e2e</b>:5 步教學按住方向鍵推進步驟、Esc 開暫停面板(tutorial-pause.spec.ts)</td><td><span class="verify-badge vC">C</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">13</td><td><b>重播檢視器 e2e</b>:/replay.html 載入 → 自動播放 tick 前進 → 最終 hash 與 blessed 值相等(replay-viewer.spec.ts)</td><td><span class="verify-badge vC">C</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">14</td><td><b>線上 round-trip</b>:pixel-squash.web.app 真開真玩、分頁有 favicon 非預設地球;線上 /replay.html hash === blessed</td><td><span class="verify-badge vB">B</span><span class="verify-badge vC">C</span></td><td class="pass">✅</td></tr>
       </tbody>
     </table>
   </section>
@@ -219,53 +304,57 @@
   <!-- ============ 測試 ============ -->
   <section>
     <h2 class="violet">🧪 五層測試金字塔(L1–L5)</h2>
-    <p class="section-note">v2 的核心設計:遊戲手感沒有 oracle,所以分五層 —— 下三層(不變量/現實錨點/規則)全自動、每次 CI 跑;L4 用 bot 自打統計圈「合理範圍走廊」;L5 把人工認可的重播凍成 hash,人只需要看一次,之後由 CI 守。</p>
+    <p class="section-note">核心設計:遊戲手感沒有 oracle,所以分五層 —— 下三層(不變量/現實錨點/規則)全自動每次 CI 跑;L4 用 bot 自打統計圈「合理範圍走廊」;L5 把人工認可的重播凍成 hash,人只需看一次,之後由 CI 守。M1–M4 的新機制(品質/天梯/每日/教學)都掛進這套。</p>
 
     <div class="layer-row">
       <span class="layer-tag l1">L1</span>
       <div class="layer-body"><b>不變量(invariants)— 任何時刻必真</b><br>
-      <span class="s">球在界內、無 NaN、能量不增、同 seed 同 hash。<code>engine-ball-invariants</code>(7)+ 決定性 lint <code>engine-determinism-lint</code>(9,靜態掃引擎層禁用 API)+ 重播一致 <code>engine-replay</code>(4)。</span></div>
+      <span class="s">球在界內、無 NaN、能量不增、同 seed 同 hash。<code>engine-ball-invariants</code>(7)+ 決定性 lint <code>engine-determinism-lint</code>(12,靜態掃引擎層禁用 API)+ 重播一致 <code>engine-replay</code>(4)。</span></div>
     </div>
     <div class="layer-row">
       <span class="layer-tag l2">L2</span>
       <div class="layer-body"><b>現實錨點(reality anchors)— 對照物理常識</b><br>
-      <span class="s">自由落體時間、反彈高度比、抽球速度數量級,錨在真實壁球數據上,防止「自洽但不像壁球」。<code>engine-ball-anchors</code>(5)。</span></div>
+      <span class="s">自由落體時間、反彈高度比、抽球速度數量級,錨在真實壁球數據上,防「自洽但不像壁球」。<code>engine-ball-anchors</code>(5)。</span></div>
     </div>
     <div class="layer-row">
       <span class="layer-tag l3">L3</span>
-      <div class="layer-body"><b>規則矩陣(rules matrix)— 逐條規則案例</b><br>
-      <span class="s">PAR-11 計分/換發/賽點、發球合法性、tin/出界/兩彈死因歸屬。<code>engine-rules-matrix</code>(29)+ 擊球解算與 bot 決策 <code>engine-shot-bot</code>(10)。</span></div>
+      <div class="layer-body"><b>規則矩陣(rules matrix)— 逐條規則案例 + 新機制單元</b><br>
+      <span class="s">PAR-11 計分/換發/賽點、發球合法性、死因歸屬 <code>engine-rules-matrix</code>(29);擊球解算與 bot 決策 <code>engine-shot-bot</code>(10);M1 揮拍品質 <code>engine-quality</code>(12);M2 天梯 <code>engine-ladder</code>(26);M3 每日 <code>engine-daily</code>(10);M4 教學/設定 <code>tutorial-settings</code>(5)。</span></div>
     </div>
     <div class="layer-row">
       <span class="layer-tag l4">L4</span>
       <div class="layer-body"><b>代理指標走廊(proxy metrics)— bot 自打統計守「好玩」</b><br>
-      <span class="s">中 bot 自打數百回合取分佈:回合長中位數 6 / p90 17;球路使用率 serve 12.4% · drive 27.4% · lob 16.5% · kill 16.0% · drop 14.9% · boast 11.5%;制勝球分佈 drive 36.9% · drop 31.5% · boast 18.1% · kill 13.4%。六條走廊全在界內 → 動態感/多樣性/公平性有數字看門。</span></div>
+      <span class="s">bot 自打數百回合取分佈,圈住回合長、可回擊率、winner:error 比、球路多樣性、左右公平性、技術梯度六條走廊。M2 天梯每一階都跑鏡像公平性走廊(50±7%),相鄰階梯度不得倒掛 → 難度曲線有數字看門。</span></div>
     </div>
     <div class="layer-row">
       <span class="layer-tag l5">L5</span>
       <div class="layer-body"><b>人工賜福(golden replay blessing)— 手感的最終權威是人眼</b><br>
-      <span class="s">在 /replay.html 看過認可的重播凍成 seed+ticks+hash 寫進 <code>engine-golden-replay</code>(3);之後任何引擎改動若動到手感 → hash 變 → CI 紅 → 必須重看重賜福。配 Playwright e2e 2 支(<code>game.spec.ts</code> 可玩流程、<code>replay-viewer.spec.ts</code> 重播一致)。</span></div>
+      <span class="s">在 /replay.html 看過認可的重播凍成 seed+ticks+hash 寫進 <code>engine-golden-replay</code>(3);任何引擎改動動到手感 → hash 變 → CI 紅 → 必須重看重賜福。配 Playwright e2e 5 支(可玩/天梯/每日/教學暫停/重播一致)。</span></div>
     </div>
 
-    <p class="section-note" style="margin-top:20px;">vitest 實跑:<b style="color:var(--neon-green)">20 檔 169 測全綠</b>(<code>npx vitest run</code>)。v2 引擎測試 7 檔 67 測;v1 時代測試 13 檔 102 測保留在套件內繼續守舊物理層(v1 程式碼仍在 repo、已不進任何頁面入口)。</p>
+    <p class="section-note" style="margin-top:20px;">vitest 實跑:<b style="color:var(--neon-green)">24 檔 225 測全綠</b>、e2e <b style="color:var(--neon-green)">5 檔 14 測全綠</b>(<code>npx vitest run</code> / <code>npx playwright test</code>)。粉色 = M1–M4 新增測試。</p>
     <div class="tests" style="margin-bottom:16px;">
       <div class="test-file"><span class="name">engine-rules-matrix.test.ts</span><span class="count">29 ✅</span></div>
-      <div class="test-file"><span class="name">engine-shot-bot.test.ts</span><span class="count">10 ✅</span></div>
-      <div class="test-file"><span class="name">engine-determinism-lint.test.ts</span><span class="count">9 ✅</span></div>
-      <div class="test-file"><span class="name">engine-ball-invariants.test.ts</span><span class="count">7 ✅</span></div>
-      <div class="test-file"><span class="name">engine-ball-anchors.test.ts</span><span class="count">5 ✅</span></div>
-      <div class="test-file"><span class="name">engine-replay.test.ts</span><span class="count">4 ✅</span></div>
-      <div class="test-file"><span class="name">engine-golden-replay.test.ts</span><span class="count">3 ✅</span></div>
+      <div class="test-file m"><span class="name">engine-ladder.test.ts</span><span class="count">26 ✅</span></div>
       <div class="test-file"><span class="name">simulate.test.ts</span><span class="count">20 ✅</span></div>
       <div class="test-file"><span class="name">feel.test.ts</span><span class="count">16 ✅</span></div>
       <div class="test-file"><span class="name">practice-acceptance.test.ts</span><span class="count">13 ✅</span></div>
+      <div class="test-file"><span class="name">engine-determinism-lint.test.ts</span><span class="count">12 ✅</span></div>
+      <div class="test-file m"><span class="name">engine-quality.test.ts</span><span class="count">12 ✅</span></div>
       <div class="test-file"><span class="name">physics-audit.test.ts</span><span class="count">11 ✅</span></div>
+      <div class="test-file m"><span class="name">engine-daily.test.ts</span><span class="count">10 ✅</span></div>
+      <div class="test-file"><span class="name">engine-shot-bot.test.ts</span><span class="count">10 ✅</span></div>
       <div class="test-file"><span class="name">strokes.test.ts</span><span class="count">8 ✅</span></div>
+      <div class="test-file"><span class="name">engine-ball-invariants.test.ts</span><span class="count">7 ✅</span></div>
       <div class="test-file"><span class="name">practice-freeze-step.test.ts</span><span class="count">7 ✅</span></div>
       <div class="test-file"><span class="name">practice-strokes.test.ts</span><span class="count">7 ✅</span></div>
+      <div class="test-file"><span class="name">engine-ball-anchors.test.ts</span><span class="count">5 ✅</span></div>
+      <div class="test-file m"><span class="name">tutorial-settings.test.ts</span><span class="count">5 ✅</span></div>
+      <div class="test-file"><span class="name">engine-replay.test.ts</span><span class="count">4 ✅</span></div>
       <div class="test-file"><span class="name">practice-fault-feedback.test.ts</span><span class="count">4 ✅</span></div>
       <div class="test-file"><span class="name">serve-trajectory.test.ts</span><span class="count">4 ✅</span></div>
       <div class="test-file"><span class="name">trajectory-coherence.test.ts</span><span class="count">4 ✅</span></div>
+      <div class="test-file"><span class="name">engine-golden-replay.test.ts</span><span class="count">3 ✅</span></div>
       <div class="test-file"><span class="name">projection-depth.test.ts</span><span class="count">3 ✅</span></div>
       <div class="test-file"><span class="name">swing-sweep.test.ts</span><span class="count">3 ✅</span></div>
       <div class="test-file"><span class="name">practice-rally.test.ts</span><span class="count">2 ✅</span></div>
@@ -273,7 +362,7 @@
   </section>
 
   <footer>
-    Pixel Squash v2 · 自動化狀態頁 · 數字全部來自實跑(vitest / L4 harness / Playwright / 線上 round-trip)<br>
+    Pixel Squash · 自動化狀態頁 · 數字全部來自實跑(vitest / L4 harness / Playwright / 線上 round-trip)<br>
     線上遊玩 <a class="link" href="https://pixel-squash.web.app" target="_blank">pixel-squash.web.app</a> ·
     重播觀戰 <a class="link" href="https://pixel-squash.web.app/replay.html?seed=20260707&a=strong&b=weak&rallies=6&autoplay=1" target="_blank">/replay.html</a> ·
     本頁 <a class="link" href="https://html.yanchen.app/pixel-squash/" target="_blank">html.yanchen.app/pixel-squash</a>
