@@ -20,6 +20,14 @@ import { GameAudio } from './audio';
 import { loadCareer, recordWin } from './career';
 import { dailyChallenge, formatBest, loadDailyBest, recordDaily, todayKey } from './daily';
 import { HumanInput } from './input';
+import { loadSettings, saveSettings } from './settings';
+import {
+  advanceTutorial,
+  isTutorialDone,
+  markTutorialDone,
+  TUTORIAL_DONE,
+  TUTORIAL_STEPS,
+} from './tutorial';
 
 function el<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -54,7 +62,83 @@ let prng = createPrng(1);
 let noteUntil = 0; // 事件標語顯示到的時刻(秒)
 let acc = 0;
 let lastTime: number | null = null;
+let paused = false;
 const audio = new GameAudio();
+
+// ---- 設定(音量) ----
+let settings = loadSettings();
+audio.setVolume(settings.volume);
+const pauseEl = el<HTMLDivElement>('pause');
+const btnPauseEl = el<HTMLButtonElement>('btnPause');
+const volSlider = el<HTMLInputElement>('volSlider');
+const volVal = el<HTMLSpanElement>('volVal');
+volSlider.value = String(Math.round(settings.volume * 100));
+volVal.textContent = `${volSlider.value}%`;
+volSlider.addEventListener('input', () => {
+  const v = Number(volSlider.value) / 100;
+  settings = { ...settings, volume: v };
+  audio.setVolume(v);
+  saveSettings(settings);
+  volVal.textContent = `${volSlider.value}%`;
+});
+
+function setPaused(p: boolean): void {
+  if (sim === null) return;
+  paused = p;
+  pauseEl.style.display = p ? 'flex' : 'none';
+}
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'Escape') return;
+  if (sim === null || menuEl.style.display !== 'none') return;
+  setPaused(!paused);
+});
+btnPauseEl.addEventListener('click', () => setPaused(true));
+el<HTMLButtonElement>('btnResume').addEventListener('click', () => setPaused(false));
+el<HTMLButtonElement>('btnQuit').addEventListener('click', () => {
+  paused = false;
+  pauseEl.style.display = 'none';
+  sim = null;
+  controllers = null;
+  btnPauseEl.hidden = true;
+  tutorialActive = false;
+  tutorialEl.hidden = true;
+  scoreEl.textContent = '0 : 0';
+  serveHintEl.textContent = '';
+  menuEl.style.display = 'flex';
+});
+
+// ---- 互動教學 ----
+const tutorialEl = el<HTMLDivElement>('tutorial');
+const btnTutorialEl = el<HTMLButtonElement>('btnTutorial');
+let tutorialActive = false;
+let tutorialStep = 0;
+let tutorialMoved = 0; // 累計移動輸入強度,夠了才算「會動了」
+let tutorialDoneAt = 0; // 完成橫幅顯示到的時刻(秒)
+
+function refreshTutorialBtn(): void {
+  btnTutorialEl.textContent = isTutorialDone() ? '新手教學(已完成 ✓)' : '新手教學(3 分鐘上手)';
+}
+refreshTutorialBtn();
+
+function showTutorialStep(): void {
+  if (tutorialStep >= TUTORIAL_DONE) {
+    tutorialEl.textContent = '🎉 教學完成!接下來去天梯會會阿新吧';
+    tutorialDoneAt = performance.now() / 1000 + 4;
+    markTutorialDone();
+    refreshTutorialBtn();
+  } else {
+    tutorialEl.textContent = `${TUTORIAL_STEPS[tutorialStep].text}(${tutorialStep + 1}/${TUTORIAL_DONE})`;
+  }
+  tutorialEl.hidden = false;
+}
+
+function tutorialNotify(ev: Parameters<typeof advanceTutorial>[1]): void {
+  const next = advanceTutorial(tutorialStep, ev);
+  if (next !== tutorialStep) {
+    tutorialStep = next;
+    showTutorialStep();
+  }
+}
 
 const QUALITY_LABEL = { perfect: 'PERFECT!', good: 'GOOD', sloppy: '毛掉了…' } as const;
 
@@ -111,6 +195,11 @@ dailyBtn.addEventListener('click', () => start(daily.rung.skill, null, true));
 function start(skill: BotSkill, rung: number | null = null, isDaily = false): void {
   careerRung = rung;
   dailyMode = isDaily;
+  paused = false;
+  pauseEl.style.display = 'none';
+  btnPauseEl.hidden = false;
+  tutorialActive = false;
+  tutorialEl.hidden = true;
   audio.unlock();
   // 每日挑戰用日期 seed(bot 決定性、全球同題);其他模式吃時鐘 seed
   prng = createPrng(isDaily ? daily.seed : Date.now() >>> 0);
@@ -130,6 +219,13 @@ function start(skill: BotSkill, rung: number | null = null, isDaily = false): vo
 el<HTMLButtonElement>('btnWeak').addEventListener('click', () => start(BOT_WEAK));
 el<HTMLButtonElement>('btnMedium').addEventListener('click', () => start(BOT_MEDIUM));
 el<HTMLButtonElement>('btnStrong').addEventListener('click', () => start(BOT_STRONG));
+btnTutorialEl.addEventListener('click', () => {
+  start(LADDER[0].skill); // 教學對手 = 天梯最底階,壓力最小
+  tutorialActive = true;
+  tutorialStep = 0;
+  tutorialMoved = 0;
+  showTutorialStep();
+});
 
 function onMatchEnd(winner: 'A' | 'B', s: GameSim): void {
   let title =
@@ -160,6 +256,9 @@ function onMatchEnd(winner: 'A' | 'B', s: GameSim): void {
   }
   endTitleEl.textContent = title;
   endTitleEl.style.display = 'block';
+  btnPauseEl.hidden = true;
+  tutorialActive = false;
+  tutorialEl.hidden = true;
   for (const b of ['btnWeak', 'btnMedium', 'btnStrong']) {
     const btn = el<HTMLButtonElement>(b);
     if (!btn.textContent!.startsWith('再來一場:')) btn.textContent = `再來一場:${btn.textContent}`;
@@ -169,7 +268,8 @@ function onMatchEnd(winner: 'A' | 'B', s: GameSim): void {
 
 function stepOnce(): void {
   if (sim === null || controllers === null) return;
-  const out = stepGame(sim, controllers, { A: input.next(), B: IDLE_INPUT }, prng);
+  const cmdA = input.next();
+  const out = stepGame(sim, controllers, { A: cmdA, B: IDLE_INPUT }, prng);
   sim = out.sim;
   let hitBy: 'A' | 'B' | null = null;
   for (const ev of out.events) {
@@ -179,6 +279,7 @@ function stepOnce(): void {
       if (ev.player === 'A') {
         input.onHit();
         if (ev.quality !== undefined) flashQuality(ev.quality);
+        if (tutorialActive) tutorialNotify({ type: 'hit', kind: ev.kind, quality: ev.quality });
       }
     } else if (ev.type === 'ball-wall') {
       audio.wallHit(ev.speed);
@@ -193,6 +294,12 @@ function stepOnce(): void {
       audio.matchEnd(ev.winner === 'A');
       onMatchEnd(ev.winner, sim);
     }
+  }
+  // 教學第一步:累計玩家的移動輸入強度(而非引擎位置——發球階段位置被鎖在發球位,
+  // 讀 pos 差永遠為 0)。按住方向鍵約 0.4 秒即達標。
+  if (tutorialActive && tutorialStep === 0) {
+    tutorialMoved += Math.abs(cmdA.moveX) + Math.abs(cmdA.moveY);
+    if (tutorialMoved >= 24) tutorialNotify({ type: 'move' });
   }
   view.sync({
     ball: sim.ball === null ? null : sim.ball.pos,
@@ -222,11 +329,22 @@ function loop(): void {
   if (lastTime === null) lastTime = now;
   acc += Math.min(now - lastTime, 0.25); // 切分頁回來不補跑一大串
   lastTime = now;
+  if (paused) {
+    acc = 0; // 暫停中不步進、不欠帳
+    view.render();
+    requestAnimationFrame(loop);
+    return;
+  }
   let steps = 0;
   while (acc >= DT && steps < 6) {
     stepOnce();
     acc -= DT;
     steps += 1;
+  }
+  // 教學完成橫幅過期就收
+  if (tutorialActive && tutorialStep >= TUTORIAL_DONE && now > tutorialDoneAt) {
+    tutorialActive = false;
+    tutorialEl.hidden = true;
   }
   updateHud();
   view.render();
@@ -248,5 +366,8 @@ requestAnimationFrame(loop);
     ball: sim.ball === null ? null : sim.ball.pos,
     careerRung,
     careerUnlocked: career.unlocked,
+    paused,
+    tutorialActive,
+    tutorialStep,
   };
 };

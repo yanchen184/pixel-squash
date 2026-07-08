@@ -9,6 +9,7 @@ export class GameAudio {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private noiseBuf: AudioBuffer | null = null;
+  private volume = 0.5;
 
   /** 綁在第一次使用者手勢(選難度按鈕)上 */
   unlock(): void {
@@ -17,10 +18,16 @@ export class GameAudio {
       if (Ctor === undefined) return;
       this.ctx = new (Ctor as typeof AudioContext)();
       this.master = this.ctx.createGain();
-      this.master.gain.value = 0.5;
+      this.master.gain.value = this.volume;
       this.master.connect(this.ctx.destination);
     }
     if (this.ctx.state === 'suspended') void this.ctx.resume();
+  }
+
+  /** 0..1;AudioContext 還沒醒也先記住,unlock 時套用 */
+  setVolume(v: number): void {
+    this.volume = v < 0 ? 0 : v > 1 ? 1 : v;
+    if (this.master !== null) this.master.gain.value = this.volume;
   }
 
   private noise(): AudioBuffer | null {

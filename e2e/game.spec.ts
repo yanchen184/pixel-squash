@@ -21,6 +21,9 @@ declare global {
       tick: number;
       posA: Vec3Like;
       ball: Vec3Like | null;
+      paused: boolean;
+      tutorialActive: boolean;
+      tutorialStep: number;
     };
   }
 }
