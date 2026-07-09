@@ -9,14 +9,20 @@
  * 節奏放慢、回合更長,重播動態重新祝福,hash/ticks 依新物理更新。
  * Re-blessed 2026-07-09(#16 兩段發球):發球改「拋球→擊球」兩段,每回合開球
  * 多出拋球滯空的 tick,重播自然變長(1209→1357、2432→2654),hash 依新發球路徑更新。
+ * Re-blessed 2026-07-09(#17 落點戰術):bot 依對手站位往空檔打(skill.tactical),
+ * 落點改變 → hash 更新(ticks 不變:回合結構同,只是球送去別的空檔)。
+ * 鏡像公平性/技術梯度測試全數仍綠 → 戰術加成對稱、未破壞天梯平衡。
+ * Re-blessed 2026-07-09(#17 站位可讀):非回擊方依球半場輕微偏防(lean 0.12×tactical),
+ * 走位改變 → ticks/hash 更新。回合長中位數走廊(3–22)仍綠,平均回合 5.6–9.1s
+ * 屬真實 squash 長回合區間,節奏未失控。
  */
 import { describe, expect, it } from 'vitest';
 import { BOT_MEDIUM, BOT_STRONG, BOT_WEAK } from '../src/engine/bot';
 import { recordSelfplay } from '../src/engine/selfplayReplay';
 
 const BLESSED = [
-  { name: 'seed 42 · medium×medium×4', seed: 42, a: BOT_MEDIUM, b: BOT_MEDIUM, rallies: 4, ticks: 1357, hash: 2951095701 },
-  { name: 'seed 20260707 · strong×weak×6', seed: 20260707, a: BOT_STRONG, b: BOT_WEAK, rallies: 6, ticks: 2654, hash: 1796697399 },
+  { name: 'seed 42 · medium×medium×4', seed: 42, a: BOT_MEDIUM, b: BOT_MEDIUM, rallies: 4, ticks: 1345, hash: 3078900976 },
+  { name: 'seed 20260707 · strong×weak×6', seed: 20260707, a: BOT_STRONG, b: BOT_WEAK, rallies: 6, ticks: 3258, hash: 4220709503 },
 ] as const;
 
 describe('L5 黃金重播(blessed replays)', () => {

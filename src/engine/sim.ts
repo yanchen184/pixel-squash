@@ -147,8 +147,13 @@ interface HitDecision {
   readonly quality?: HitQuality;
 }
 
-function botHitDecision(skill: BotSkill, ballPos: Vec3, prng: Prng): HitDecision {
-  const shot = decideShot(skill, ballPos, prng);
+function botHitDecision(
+  skill: BotSkill,
+  ballPos: Vec3,
+  prng: Prng,
+  opponentX: number,
+): HitDecision {
+  const shot = decideShot(skill, ballPos, prng, opponentX);
   if (shot !== null) return { kind: shot.kind, velocity: shot.velocity };
   return { kind: 'shovel', velocity: shovelVelocity(ballPos) };
 }
@@ -346,12 +351,22 @@ export function stepGame(
       }
     } else {
       const skill = ctrl.skill;
-      const home = skill.home === undefined ? T_POS : skill.home; // 站位個性
+      const baseHome = skill.home === undefined ? T_POS : skill.home; // 站位個性
       const reacted = tick - lastHitTick >= skill.reactionTicks;
       if (id === returner && ball !== null && reacted) {
-        const target = interceptPoint(ball) ?? home;
+        const target = interceptPoint(ball) ?? baseHome;
         next = clampPos(moveToward(pos, target, skill.moveSpeed * DT));
       } else if (id !== returner) {
+        // 站位可讀(下棋感):非回擊方不呆站死 T 點,依球當前半場「輕微」往該側偏防
+        // (堵對手最可能的直線回球),偏移量受 tactical 縮放且刻意收斂(0.12)——
+        // 讓 AI 站位有可讀的意圖傾向,又不至於站太好把回合拖長傷節奏;
+        // 菜鳥(tactical=0)站死 T 點。真正的下棋感主力是「落點戰術」(decideShot 打空檔)。
+        const tac = skill.tactical === undefined ? 0 : skill.tactical;
+        let home = baseHome;
+        if (tac > 0 && ball !== null) {
+          const lean = (ball.pos.x - COURT_W / 2) * 0.12 * tac;
+          home = { x: baseHome.x + lean, y: baseHome.y, z: 0 };
+        }
         next = clampPos(moveToward(pos, home, skill.moveSpeed * DT));
       }
     }
@@ -368,9 +383,10 @@ export function stepGame(
     const reacted =
       ctrl.type === 'bot' ? tick - lastHitTick >= ctrl.skill.reactionTicks : true;
     if (inReach && wants && reacted) {
+      const opponentX = returner === 'A' ? posB.x : posA.x;
       const decision =
         ctrl.type === 'bot'
-          ? botHitDecision(ctrl.skill, ball.pos, prng)
+          ? botHitDecision(ctrl.skill, ball.pos, prng, opponentX)
           : humanHitDecision(
               inputs[returner],
               ball.pos,
