@@ -280,10 +280,16 @@ function stepOnce(): void {
   const out = stepGame(sim, controllers, { A: cmdA, B: IDLE_INPUT }, prng);
   sim = out.sim;
   let hitBy: 'A' | 'B' | null = null;
+  let hitKind: RenderState['hitKind'] = null;
+  let hitPoint: RenderState['hitPoint'] = null;
+  let hitSpeed: RenderState['hitSpeed'] = null;
   let wallHit: RenderState['wallHit'] = null;
   for (const ev of out.events) {
     if (ev.type === 'hit') {
       hitBy = ev.player;
+      hitKind = ev.kind;
+      hitPoint = ev.point;
+      hitSpeed = ev.speed;
       audio.racketHit(ev.speed, ev.quality);
       if (ev.player === 'A') {
         input.onHit();
@@ -316,6 +322,9 @@ function stepOnce(): void {
     playerA: sim.playerA.pos,
     playerB: sim.playerB.pos,
     hitBy,
+    hitKind,
+    hitPoint,
+    hitSpeed,
     wallHit,
   });
 }

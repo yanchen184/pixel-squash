@@ -13,6 +13,9 @@ import { buildCourt } from './court3d';
 import { Player3D } from './player3d';
 import { Crowd, ImpactPool, makeSpritePlayerA, makeSpritePlayerB, SpritePlayer } from './sprites';
 
+/** 揮拍種類(決定正手/反手/挑高等動畫列);'shovel' = 撈救球 */
+export type HitKind = 'drive' | 'kill' | 'drop' | 'lob' | 'boast' | 'serve' | 'shovel';
+
 /** 渲染所需的最小狀態切面 */
 export interface RenderState {
   readonly ball: Vec3 | null;
@@ -20,6 +23,12 @@ export interface RenderState {
   readonly playerB: Vec3;
   /** 這 tick 有人揮拍 → 觸發揮拍動畫 */
   readonly hitBy?: PlayerId | null;
+  /** 揮拍種類 → 選正手/反手/挑高列 + 接觸感強度 */
+  readonly hitKind?: HitKind | null;
+  /** 擊球點(引擎座標)→ 在球拍位置炸擊球火花 */
+  readonly hitPoint?: Vec3 | null;
+  /** 擊球出手速度 → 頓幀/火花強度 */
+  readonly hitSpeed?: number | null;
   /** 這 tick 球撞牆 → 火花特效(引擎座標) */
   readonly wallHit?: { readonly wall: WallId; readonly point: Vec3 } | null;
 }
@@ -51,7 +60,7 @@ const WALL_NORMAL: Record<WallId, readonly [number, number, number]> = {
 interface PlayerVisual {
   readonly group: THREE.Group;
   pose(x: number, z: number, faceX: number, faceZ: number): void;
-  triggerSwing(): void;
+  triggerSwing(kind?: HitKind | null): void;
   update(dt: number): void;
 }
 
@@ -69,6 +78,8 @@ export class Render3D {
   private readonly tmpN = new THREE.Vector3();
   private readonly lookAt = new THREE.Vector3(0, 0.9, -COURT_D / 4);
   private lastTime: number | null = null;
+  /** 頓幀:擊球瞬間剩餘的凍結秒數(render 迴圈把 dt 壓到近 0,給「打中」的重量感) */
+  private hitStop = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -151,8 +162,17 @@ export class Render3D {
     this.playerA.pose(this.tmp.x, this.tmp.z, faceX, faceZ);
     toWorld(state.playerB, this.tmp);
     this.playerB.pose(this.tmp.x, this.tmp.z, faceX, faceZ);
-    if (state.hitBy === 'A') this.playerA.triggerSwing();
-    else if (state.hitBy === 'B') this.playerB.triggerSwing();
+    if (state.hitBy === 'A') this.playerA.triggerSwing(state.hitKind);
+    else if (state.hitBy === 'B') this.playerB.triggerSwing(state.hitKind);
+    // 擊球接觸感:在擊球點炸一發面向鏡頭的火花 + 觸發頓幀(出手越快越重)
+    if (state.hitBy && state.hitPoint) {
+      toWorld(state.hitPoint, this.tmp);
+      this.tmpN.set(0, 0, 1); // 火花面向鏡頭(後牆方向)
+      this.impacts.spawn(this.tmp, this.tmpN, 0.7);
+      const sp = state.hitSpeed ?? 20;
+      // 快球(殺/抽)頓久一點,慢球(放小)輕碰;上限 55ms 免拖泥帶水
+      this.hitStop = Math.min(0.055, 0.02 + sp * 0.001);
+    }
     if (state.wallHit) {
       toWorld(state.wallHit.point, this.tmp);
       const n = WALL_NORMAL[state.wallHit.wall];
@@ -162,8 +182,14 @@ export class Render3D {
 
   render(): void {
     const now = performance.now() / 1000;
-    const dt = this.lastTime === null ? 1 / 60 : Math.min(now - this.lastTime, 0.1);
+    let dt = this.lastTime === null ? 1 / 60 : Math.min(now - this.lastTime, 0.1);
     this.lastTime = now;
+    // 頓幀:擊球後極短時間把動畫時間幾乎凍住(球員/球/火花全部定格一瞬),
+    // 製造「打到實心球」的重量感;凍結期間 dt 壓到 12% 而非全 0(全 0 會卡死揮拍動畫進度)。
+    if (this.hitStop > 0) {
+      this.hitStop = Math.max(0, this.hitStop - dt);
+      dt *= 0.12;
+    }
     this.playerA.update(dt);
     this.playerB.update(dt);
     this.crowd.update(dt);

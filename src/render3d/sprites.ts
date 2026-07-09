@@ -12,6 +12,24 @@ const COLS = 4;
 const ROWS = 4;
 const FRAMES = COLS * ROWS;
 
+/** 揮拍種類(與 render3d HitKind 對齊,此處只取渲染需要的) */
+type SwingKind = 'drive' | 'kill' | 'drop' | 'lob' | 'boast' | 'serve' | 'shovel';
+
+/**
+ * sheet 只有 4 列(0待機/1跑/2正手/3反手),球路種類多於列數 → 用「列(正/反手)× 揮拍時長 × 幅度」
+ * 三軸把六球路揉出不同手感:殺球最快最猛、放小最輕最短、挑高/發球高舉慢揮。
+ * dur = 該次揮拍播完的秒數;lift = 揮拍時球員上抬幅度(公尺),挑高/發球抬手明顯。
+ */
+const SWING_FEEL: Record<SwingKind, { dur: number; lift: number }> = {
+  kill: { dur: 0.22, lift: 0.06 }, // 殺球:快、俐落、微微躍起
+  drive: { dur: 0.3, lift: 0.0 }, // 抽球:標準
+  boast: { dur: 0.32, lift: 0.0 }, // 反角:標準偏長
+  drop: { dur: 0.26, lift: -0.02 }, // 放小:短、下沉、輕
+  lob: { dur: 0.42, lift: 0.1 }, // 挑高:慢、大幅上撈
+  serve: { dur: 0.4, lift: 0.08 }, // 發球:慢、拋高
+  shovel: { dur: 0.34, lift: -0.04 }, // 撈救:低伸勉強夠到
+};
+
 const sheetLoader = new THREE.TextureLoader();
 function loadSheet(path: string): THREE.Texture {
   const t = sheetLoader.load(path);
@@ -55,6 +73,8 @@ export class SpritePlayer {
   private clock = 0;
   private swingAt = -1e9;
   private swingRow = 2; // 2=正手 3=反手
+  private swingDur = SWING_SEC; // 這次揮拍播完秒數(依球路)
+  private swingLift = 0; // 這次揮拍的上抬幅度(公尺,依球路)
   private ballSide = 1; // 球在右(+)/左(-),決定正反手
   private runPhase = 0;
   private readonly lastPos = new THREE.Vector2();
@@ -99,9 +119,14 @@ export class SpritePlayer {
     this.moveX = this.moveX * 0.85 + dx * 60 * 0.15;
   }
 
-  triggerSwing(): void {
+  triggerSwing(kind?: SwingKind | null): void {
     this.swingAt = this.clock;
+    // 正/反手仍由球側決定(球在右手邊=正手 row2,左邊=反手 row3);
+    // 但發球固定正手高拋、挑高偏用反手大撈,讓這兩種辨識度更高。
     this.swingRow = this.ballSide >= 0 ? 2 : 3;
+    const feel = kind ? SWING_FEEL[kind] : SWING_FEEL.drive;
+    this.swingDur = feel.dur;
+    this.swingLift = feel.lift;
   }
 
   /** 圓柱 billboard:只繞 Y 面向鏡頭(sprite 是背側視角,鏡頭在球員後方) */
@@ -114,22 +139,29 @@ export class SpritePlayer {
 
   update(dt: number): void {
     this.clock += dt;
-    const swingT = (this.clock - this.swingAt) / SWING_SEC;
+    const swingT = (this.clock - this.swingAt) / this.swingDur;
     if (swingT >= 0 && swingT <= 1) {
-      // 揮拍:0.3 秒內播完該列 4 幀(正反手已依球側選列,不鏡像)
+      // 揮拍:swingDur 秒內播完該列 4 幀(正反手已依球側選列,不鏡像)。
+      // 上抬:揮拍中段身體隨球路上抬(挑高/發球明顯,放小/撈救下沉),用 sin 弧線一起一落。
       this.mesh.scale.x = 1;
+      const lift = this.swingLift * Math.sin(swingT * Math.PI);
+      this.mesh.position.y = lift;
       setFrame(this.tex, this.swingRow * COLS + Math.min(COLS - 1, Math.floor(swingT * COLS)));
       return;
     }
+    this.mesh.position.y = 0;
     if (this.speed > RUN_SPEED_MIN) {
-      // 原圖跑步幀朝右;往左移就水平鏡像,沒有明確橫向時沿用上次朝向
-      if (this.moveX > 0.25) this.facing = 1;
-      else if (this.moveX < -0.25) this.facing = -1;
+      // 追球感:面向「移動方向」(不是面向球),往左移水平鏡像;步頻隨速度提高。
+      // moveX 門檻放低到 0.15 讓小碎步也能定向,避免原地抖動時朝向亂翻。
+      if (this.moveX > 0.15) this.facing = 1;
+      else if (this.moveX < -0.15) this.facing = -1;
       this.mesh.scale.x = this.facing;
-      this.runPhase += dt * (8 + this.speed * 2.5); // 跑越快步頻越高
+      // 步頻:基礎 9 + 速度加成,快跑腿更急;上限避免過快變殘影
+      this.runPhase += dt * Math.min(26, 9 + this.speed * 3.2);
       setFrame(this.tex, COLS + Math.floor(this.runPhase) % COLS);
     } else {
       this.mesh.scale.x = 1;
+      this.runPhase = 0;
       setFrame(this.tex, Math.floor(this.clock * 5) % COLS); // 待機呼吸 5fps
     }
   }
@@ -205,12 +237,13 @@ export class ImpactPool {
     }
   }
 
-  /** 在世界座標 pos 播一發,面向 normal(牆面法線) */
-  spawn(pos: THREE.Vector3, normal: THREE.Vector3): void {
+  /** 在世界座標 pos 播一發,面向 normal(牆面法線);scale 縮放這發大小(擊球火花較小) */
+  spawn(pos: THREE.Vector3, normal: THREE.Vector3, scale = 1): void {
     const b = this.bursts[this.next];
     this.next = (this.next + 1) % this.bursts.length;
     b.mesh.position.copy(pos).addScaledVector(normal, 0.03);
     b.mesh.lookAt(pos.clone().add(normal));
+    b.mesh.scale.setScalar(scale);
     b.mesh.visible = true;
     b.startedAt = this.clock;
   }
