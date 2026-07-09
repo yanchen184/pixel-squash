@@ -4,6 +4,7 @@ import type { GameMode } from '@/data/gameState';
 import type { MatchConfig } from './GameView';
 import { GameView } from './GameView';
 import { useIsPortraitPhone } from './useOrientation';
+import appIcon from '../../assets/pixel-squash-app-icon.png';
 
 type Screen = 'menu' | 'howto' | 'difficulty' | 'match';
 
@@ -26,13 +27,21 @@ export function App() {
 
   if (screen === 'menu') {
     return (
-      <Center>
-        <h1 style={{ fontSize: 48, margin: 0 }}>🎾 Pixel Squash</h1>
-        <p style={{ color: '#aaa' }}>像素壁球 · 挑戰電腦對手</p>
-        <button style={bigBtn} onClick={() => setScreen('howto')}>開始遊戲</button>
-        <button style={{ ...bigBtn, background: '#2a7a4a' }} onClick={() => startMatch('easy', 'practice')}>練習模式</button>
-        <button style={ghostBtn} onClick={() => setScreen('howto')}>怎麼玩？</button>
-      </Center>
+      <div style={menuShell}>
+        <div style={menuGlow} />
+        <div style={brandLockup}>
+          <img src={appIcon} alt="" style={appIconStyle} />
+          <div>
+            <h1 style={titleStyle}>Pixel Squash</h1>
+            <p style={subtitleStyle}>玻璃場館 · 快節奏壁球對戰</p>
+          </div>
+        </div>
+        <div style={menuActions}>
+          <button style={primaryBtn} onClick={() => setScreen('howto')}>開始遊戲</button>
+          <button style={practiceBtn} onClick={() => startMatch('easy', 'practice')}>練習模式</button>
+          <button style={ghostBtn} onClick={() => setScreen('howto')}>怎麼玩？</button>
+        </div>
+      </div>
     );
   }
 
@@ -91,6 +100,96 @@ const rotateWrap: React.CSSProperties = {
   gap: 18,
   padding: 24,
   boxSizing: 'border-box',
+};
+
+const menuShell: React.CSSProperties = {
+  position: 'relative',
+  minHeight: '100%',
+  overflow: 'hidden',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 30,
+  padding: 32,
+  boxSizing: 'border-box',
+  background: 'radial-gradient(circle at 50% 35%, rgba(255,207,105,0.18), transparent 32%), linear-gradient(180deg, #07090f 0%, #131824 48%, #090b12 100%)',
+};
+
+const menuGlow: React.CSSProperties = {
+  position: 'absolute',
+  inset: '12% 10%',
+  border: '1px solid rgba(225,235,230,0.16)',
+  boxShadow: '0 0 80px rgba(75,190,170,0.16), inset 0 0 80px rgba(255,220,150,0.08)',
+  transform: 'perspective(900px) rotateX(58deg)',
+  transformOrigin: '50% 70%',
+  pointerEvents: 'none',
+};
+
+const brandLockup: React.CSSProperties = {
+  position: 'relative',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 22,
+  padding: '18px 22px',
+  border: '1px solid rgba(230,238,230,0.18)',
+  background: 'rgba(8,12,18,0.72)',
+  boxShadow: '0 18px 60px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.08)',
+  backdropFilter: 'blur(10px)',
+  borderRadius: 8,
+};
+
+const appIconStyle: React.CSSProperties = {
+  width: 112,
+  height: 112,
+  borderRadius: 8,
+  objectFit: 'cover',
+  boxShadow: '0 0 28px rgba(255,196,86,0.24)',
+  flexShrink: 0,
+};
+
+const titleStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: 48,
+  lineHeight: 1,
+  letterSpacing: 0,
+  color: '#f5efe2',
+  textShadow: '0 0 24px rgba(255,210,120,0.24)',
+};
+
+const subtitleStyle: React.CSSProperties = {
+  margin: '10px 0 0',
+  color: 'rgba(218,226,218,0.76)',
+  fontSize: 15,
+};
+
+const menuActions: React.CSSProperties = {
+  position: 'relative',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+  flexWrap: 'wrap',
+  justifyContent: 'center',
+};
+
+const primaryBtn: React.CSSProperties = {
+  padding: '14px 34px',
+  fontSize: 20,
+  fontWeight: 800,
+  background: 'linear-gradient(180deg, #f5bf5f, #b7682e)',
+  color: '#1b1208',
+  border: '1px solid rgba(255,230,170,0.55)',
+  borderRadius: 8,
+  cursor: 'pointer',
+  boxShadow: '0 12px 30px rgba(180,100,30,0.28)',
+};
+
+const practiceBtn: React.CSSProperties = {
+  ...primaryBtn,
+  background: 'linear-gradient(180deg, #5dd6a7, #247d5c)',
+  color: '#061410',
+  border: '1px solid rgba(160,255,220,0.45)',
+  boxShadow: '0 12px 30px rgba(30,150,110,0.22)',
 };
 
 function Center({ children }: { children: React.ReactNode }) {

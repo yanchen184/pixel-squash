@@ -144,10 +144,10 @@
     <div class="sub">真 3D 壁球 · TypeScript + Three.js · SI 單位決定性 60Hz 引擎 · 你對 AI · 揮拍手感 + 8 階天梯 + 每日挑戰 + 新手教學 + 像素 sprite 動畫</div>
     <div class="meta-row">
       <span class="chip">里程碑 <b>M1–M4 全完成 ✅</b></span>
-      <span class="chip">vitest <b>225 / 225 綠(24 檔)</b></span>
+      <span class="chip">vitest <b>228 / 228 綠(25 檔)</b></span>
       <span class="chip">e2e <b>14 / 14 綠(5 檔)</b></span>
       <span class="chip">L4 走廊 <b>全綠 ✅</b></span>
-      <span class="chip">視覺收尾 <b>sprite round-trip ✅</b></span>
+      <span class="chip">手感收尾 <b>兩段發球 + 下棋感 round-trip ✅</b></span>
       <span class="chip">線上 <a href="https://pixel-squash.web.app" target="_blank">pixel-squash.web.app</a></span>
       <span class="chip">重播 <a href="https://pixel-squash.web.app/replay.html?seed=20260707&a=strong&b=weak&rallies=6&autoplay=1" target="_blank">AI 對打觀戰 →</a></span>
       <span class="chip">最後更新 <b id="updated">2026-07-09</b></span>
@@ -204,10 +204,21 @@
         <h3>👾 像素 sprite 動畫 <span class="tag-new">P5</span></h3>
         <ul>
           <li><b>16 幀球員</b> <span>4×4 sprite sheet:待機呼吸/跑步/正反手揮拍四列,依速度與揮拍事件切列;圓柱 billboard 面向鏡頭。格內多餘球已清、內容完整重切,腳部錨點與影子對位。</span></li>
-          <li><b>移動朝向</b> <span>左移鏡像、後退姿態與接地影子用 Playwright 截圖 round-trip 驗證。</span></li>
+          <li><b>追球感</b> <span>面向「移動方向」非面向球,左移鏡像、步頻隨速度提高,小碎步也定向不抖。</span></li>
+          <li><b>擊球接觸感</b> <span>揮拍對到球那刻在球拍位置炸火花 + 頓幀(dt 壓 12%),快球頓久、慢球輕碰,打到實心球的重量感。</span></li>
+          <li><b>多球路揮拍手感</b> <span>六球路揉出不同揮拍時長 × 上抬幅度:殺球快猛微躍、放小短沉、挑高/發球慢揮大撈。</span></li>
           <li><b>觀眾席</b> <span>前牆上方 4 面板錯相輪播(拍手/歡呼),避免同步複製感</span></li>
           <li><b>擊牆火花</b> <span>引擎 ball-wall 事件帶撞擊點,加法混合火花在撞擊處播 16 幀</span></li>
           <li><b>可退回</b> <span>網址帶 <code>?c3d</code> 切回程序化 3D 球員(fallback)</span></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>♟️ 兩段發球 + 下棋感 <span class="tag-new">P5</span></h3>
+        <ul>
+          <li><b>發球分兩段</b> <span>發球者先把球純上拋(vz 3.2)、球滯空,落回擊球高度或再按揮拍才真擊球進回合;bot 自動於球落回時擊,含 1.5s 安全閥。真瀏覽器 round-trip 確認球先升空再被打出。</span></li>
+          <li><b>落點策略性</b> <span>AI 讀對手站位往「反側空檔」送球(調虎離山),殺/放收尾球加成加倍;engine-tactics 測背書落點確實往空檔偏,非宣稱。</span></li>
+          <li><b>站位可讀</b> <span>非回擊方依球半場輕微偏防、堵對手直線,站位有可讀意圖又不拖長回合;菜鳥站死 T 點。</span></li>
+          <li><b>放慢節奏</b> <span>分球路球速倍率(drive/kill ×0.65)讓對打有來回、看得清球路,是下棋而非亂揮。</span></li>
         </ul>
       </div>
       <div class="card">
@@ -332,7 +343,7 @@
     <div class="layer-row">
       <span class="layer-tag l3">L3</span>
       <div class="layer-body"><b>規則矩陣(rules matrix)— 逐條規則案例 + 新機制單元</b><br>
-      <span class="s">PAR-11 計分/換發/賽點、發球合法性、死因歸屬 <code>engine-rules-matrix</code>(29);擊球解算與 bot 決策 <code>engine-shot-bot</code>(10);M1 揮拍品質 <code>engine-quality</code>(12);M2 天梯 <code>engine-ladder</code>(26);M3 每日 <code>engine-daily</code>(10);M4 教學/設定 <code>tutorial-settings</code>(5)。</span></div>
+      <span class="s">PAR-11 計分/換發/賽點、發球合法性、死因歸屬 <code>engine-rules-matrix</code>(29);擊球解算與 bot 決策 <code>engine-shot-bot</code>(10);M1 揮拍品質 <code>engine-quality</code>(12);M2 天梯 <code>engine-ladder</code>(26);M3 每日 <code>engine-daily</code>(10);P5 落點戰術(下棋感)<code>engine-tactics</code>(3);M4 教學/設定 <code>tutorial-settings</code>(5)。</span></div>
     </div>
     <div class="layer-row">
       <span class="layer-tag l4">L4</span>
@@ -342,10 +353,10 @@
     <div class="layer-row">
       <span class="layer-tag l5">L5</span>
       <div class="layer-body"><b>人工賜福(golden replay blessing)— 手感的最終權威是人眼</b><br>
-      <span class="s">在 /replay.html 看過認可的重播凍成 seed+ticks+hash 寫進 <code>engine-golden-replay</code>(3);任何引擎改動動到手感 → hash 變 → CI 紅 → 必須重看重賜福。配 Playwright e2e 5 支(可玩/天梯/每日/教學暫停/重播一致)。</span></div>
+      <span class="s">在 /replay.html 看過認可的重播凍成 seed+ticks+hash 寫進 <code>engine-golden-replay</code>(3);任何引擎改動動到手感 → hash 變 → CI 紅 → 必須重看重賜福(兩段發球 + 落點戰術 2026-07-09 重新賜福)。配 Playwright e2e 5 支(可玩/天梯/每日/教學暫停/重播一致)。</span></div>
     </div>
 
-    <p class="section-note" style="margin-top:20px;">vitest 實跑:<b style="color:var(--neon-green)">24 檔 225 測全綠</b>、e2e <b style="color:var(--neon-green)">5 檔 14 測全綠</b>(<code>npx vitest run</code> / <code>npx playwright test</code>)。粉色 = M1–M4 新增測試。</p>
+    <p class="section-note" style="margin-top:20px;">vitest 實跑:<b style="color:var(--neon-green)">25 檔 228 測全綠</b>、e2e <b style="color:var(--neon-green)">5 檔 14 測全綠</b>(<code>npx vitest run</code> / <code>npx playwright test</code>)。粉色 = M1–M4 新增測試。</p>
     <div class="tests" style="margin-bottom:16px;">
       <div class="test-file"><span class="name">engine-rules-matrix.test.ts</span><span class="count">29 ✅</span></div>
       <div class="test-file m"><span class="name">engine-ladder.test.ts</span><span class="count">26 ✅</span></div>
@@ -368,6 +379,7 @@
       <div class="test-file"><span class="name">serve-trajectory.test.ts</span><span class="count">4 ✅</span></div>
       <div class="test-file"><span class="name">trajectory-coherence.test.ts</span><span class="count">4 ✅</span></div>
       <div class="test-file"><span class="name">engine-golden-replay.test.ts</span><span class="count">3 ✅</span></div>
+      <div class="test-file m"><span class="name">engine-tactics.test.ts</span><span class="count">3 ✅</span></div>
       <div class="test-file"><span class="name">projection-depth.test.ts</span><span class="count">3 ✅</span></div>
       <div class="test-file"><span class="name">swing-sweep.test.ts</span><span class="count">3 ✅</span></div>
       <div class="test-file"><span class="name">practice-rally.test.ts</span><span class="count">2 ✅</span></div>

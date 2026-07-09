@@ -137,23 +137,38 @@ function sideOutScreenY(t: number): number {
 
 // Palette
 const COL = {
-  bg:          '#08090f',
-  sideWall:    '#1a2030',
-  sideWallLit: '#243044',
-  floor:       '#141c28',
-  floorLit:    '#1a2535',
+  bg:          '#07080c',
+  sideWall:    '#d5d8d0',
+  sideWallLit: '#f3f0e4',
+  floor:       '#b87a38',
+  floorLit:    '#d7a15a',
   glass:       'rgba(140,200,255,0.12)',
   glassBorder: 'rgba(160,220,255,0.35)',
-  tin:         '#e03030',
-  outLine:     '#e07020',
-  serviceLine: '#30b060',
+  tin:         '#d8333a',
+  outLine:     '#f0ad3d',
+  serviceLine: '#2fb66e',
   midLine:     'rgba(255,255,255,0.25)',
-  ball:        '#ffb830',
-  ballGlow:    '#ff7800',
+  ball:        '#ffcf38',
+  ballGlow:    '#ff7a16',
   player:      '#4080ff',
   neon1:       '#ff2080',
   neon2:       '#00c8ff',
 };
+
+const COURT_SKIN = {
+  wallCream: '#efe8d6',
+  wallCoolShadow: '#9aa5a7',
+  wallInk: '#2f4559',
+  wallPanel: 'rgba(255,255,255,0.18)',
+  floorNear: '#d79a4e',
+  floorMid: '#b87436',
+  floorFar: '#6e4a2a',
+  floorGrain: 'rgba(70,34,12,0.13)',
+  floorHighlight: 'rgba(255,220,150,0.24)',
+  railDark: '#242a33',
+  railLight: '#d8e7ef',
+  lineGlow: 'rgba(255,230,130,0.45)',
+} as const;
 
 export type FrontWallConfig = { gameMode: GameMode; difficulty: Difficulty };
 
@@ -574,12 +589,39 @@ export class FrontWallRenderer {
 
   private drawBg(): void {
     const ctx = this.ctx;
-    // Deep dark gradient top-to-bottom
+    // Premium arena backdrop: dark seating shell with warm light spilling onto court.
     const grad = ctx.createLinearGradient(0, 0, 0, GAME_HEIGHT);
-    grad.addColorStop(0, '#060810');
-    grad.addColorStop(1, '#0d1520');
+    grad.addColorStop(0, '#020308');
+    grad.addColorStop(0.45, '#11151d');
+    grad.addColorStop(1, '#06080d');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+    const halo = ctx.createRadialGradient(VP_X, VP_Y, 60, VP_X, VP_Y, GAME_WIDTH * 0.75);
+    halo.addColorStop(0, 'rgba(255,232,180,0.16)');
+    halo.addColorStop(0.34, 'rgba(85,150,190,0.10)');
+    halo.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = halo;
+    ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    for (let i = 0; i < 7; i++) {
+      const x = 170 + i * 156;
+      const beam = ctx.createLinearGradient(x, 0, VP_X, GAME_HEIGHT * 0.58);
+      beam.addColorStop(0, 'rgba(255,244,205,0.22)');
+      beam.addColorStop(0.42, 'rgba(255,244,205,0.045)');
+      beam.addColorStop(1, 'rgba(255,244,205,0)');
+      ctx.fillStyle = beam;
+      ctx.beginPath();
+      ctx.moveTo(x - 42, 0);
+      ctx.lineTo(x + 42, 0);
+      ctx.lineTo(VP_X + (x - VP_X) * 0.16 + 58, GAME_HEIGHT * 0.58);
+      ctx.lineTo(VP_X + (x - VP_X) * 0.16 - 58, GAME_HEIGHT * 0.58);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   // ── Court surfaces + 12-edge wireframe ───────────────────────────────────
@@ -606,8 +648,9 @@ export class FrontWallRenderer {
     ctx.lineTo(NEAR_LEFT, NEAR_BOTTOM);
     ctx.closePath();
     const leftGrad = ctx.createLinearGradient(NEAR_LEFT, 0, FAR_LEFT, 0);
-    leftGrad.addColorStop(0, '#141e2e');
-    leftGrad.addColorStop(1, '#0c1520');
+    leftGrad.addColorStop(0, COURT_SKIN.wallCream);
+    leftGrad.addColorStop(0.55, '#bfc7c0');
+    leftGrad.addColorStop(1, COURT_SKIN.wallCoolShadow);
     ctx.fillStyle = leftGrad;
     ctx.fill();
 
@@ -619,8 +662,9 @@ export class FrontWallRenderer {
     ctx.lineTo(NEAR_RIGHT, NEAR_BOTTOM);
     ctx.closePath();
     const rightGrad = ctx.createLinearGradient(NEAR_RIGHT, 0, FAR_RIGHT, 0);
-    rightGrad.addColorStop(0, '#141e2e');
-    rightGrad.addColorStop(1, '#0c1520');
+    rightGrad.addColorStop(0, COURT_SKIN.wallCream);
+    rightGrad.addColorStop(0.55, '#c7cbc0');
+    rightGrad.addColorStop(1, COURT_SKIN.wallCoolShadow);
     ctx.fillStyle = rightGrad;
     ctx.fill();
 
@@ -632,14 +676,17 @@ export class FrontWallRenderer {
     ctx.lineTo(NEAR_RIGHT, NEAR_TOP);
     ctx.closePath();
     const ceilGrad = ctx.createLinearGradient(0, NEAR_TOP, 0, FAR_TOP);
-    ceilGrad.addColorStop(0, '#0b1020');
-    ceilGrad.addColorStop(1, '#111928');
+    ceilGrad.addColorStop(0, '#111925');
+    ceilGrad.addColorStop(0.52, '#263242');
+    ceilGrad.addColorStop(1, '#151a24');
     ctx.fillStyle = ceilGrad;
     ctx.fill();
 
+    this.drawSideWallPanels();
+
     // ── 4 depth edges (the 4 "rails" going front→back) ──
     ctx.shadowBlur = 0;
-    const edgeColor = 'rgba(80,120,180,0.55)';
+    const edgeColor = 'rgba(40,58,78,0.70)';
     ctx.strokeStyle = edgeColor;
     ctx.lineWidth = 1.5;
     // top-left rail (ceiling left edge)
@@ -670,6 +717,39 @@ export class FrontWallRenderer {
     ctx.shadowBlur = 0;
   }
 
+  private drawSideWallPanels(): void {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(40,55,66,0.18)';
+    for (let i = 1; i < 6; i++) {
+      const gy = (COURT.depth / 6) * i;
+      const t = depthT(gy);
+      const leftBottom = { x: screenX(0, t), y: screenY(0, t) };
+      const leftTop = { x: screenX(0, t), y: screenY(FRONT_OUT_HEIGHT, t) };
+      const rightBottom = { x: screenX(COURT.width, t), y: screenY(0, t) };
+      const rightTop = { x: screenX(COURT.width, t), y: screenY(FRONT_OUT_HEIGHT, t) };
+      ctx.beginPath();
+      ctx.moveTo(leftBottom.x, leftBottom.y);
+      ctx.lineTo(leftTop.x, leftTop.y);
+      ctx.moveTo(rightBottom.x, rightBottom.y);
+      ctx.lineTo(rightTop.x, rightTop.y);
+      ctx.stroke();
+    }
+
+    for (const sideX of [0, COURT.width]) {
+      for (let i = 1; i <= 3; i++) {
+        const z = (FRONT_OUT_HEIGHT / 4) * i;
+        ctx.strokeStyle = i === 3 ? 'rgba(40,55,66,0.16)' : 'rgba(255,255,255,0.13)';
+        ctx.beginPath();
+        ctx.moveTo(screenX(sideX, 0), screenY(z, 0));
+        ctx.lineTo(screenX(sideX, 1), screenY(z, 1));
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
   private drawFloor(s: GameState): void {
     const ctx = this.ctx;
 
@@ -681,20 +761,20 @@ export class FrontWallRenderer {
     ctx.lineTo(NEAR_RIGHT, NEAR_BOTTOM);
     ctx.closePath();
     const floorGrad = ctx.createLinearGradient(0, NEAR_BOTTOM, 0, FAR_BOTTOM);
-    // Warmer, lighter court-wood tone so the floor reads as a real surface
-    // instead of a near-black void (perspective box can't take the flat top-down
-    // court_bg art, so we tint the trapezoid itself).
-    floorGrad.addColorStop(0, '#22354a');
-    floorGrad.addColorStop(1, '#152736');
+    floorGrad.addColorStop(0, COURT_SKIN.floorNear);
+    floorGrad.addColorStop(0.46, COURT_SKIN.floorMid);
+    floorGrad.addColorStop(1, COURT_SKIN.floorFar);
     ctx.fillStyle = floorGrad;
     ctx.fill();
 
+    this.drawFloorSkin();
+
     // Faint plank lines running front→back to give the floor a wood texture.
     ctx.save();
-    ctx.strokeStyle = 'rgba(120,150,190,0.07)';
+    ctx.strokeStyle = COURT_SKIN.floorGrain;
     ctx.lineWidth = 1;
-    for (let i = 1; i < 8; i++) {
-      const gx = (COURT.width / 8) * i;
+    for (let i = 1; i < 18; i++) {
+      const gx = (COURT.width / 18) * i;
       ctx.beginPath();
       ctx.moveTo(screenX(gx, 0), screenY(0, 0));
       ctx.lineTo(screenX(gx, 1), screenY(0, 1));
@@ -781,6 +861,53 @@ export class FrontWallRenderer {
     ctx.stroke();
   }
 
+  private drawFloorSkin(): void {
+    const ctx = this.ctx;
+    ctx.save();
+
+    ctx.beginPath();
+    ctx.moveTo(NEAR_LEFT, NEAR_BOTTOM);
+    ctx.lineTo(FAR_LEFT, FAR_BOTTOM);
+    ctx.lineTo(FAR_RIGHT, FAR_BOTTOM);
+    ctx.lineTo(NEAR_RIGHT, NEAR_BOTTOM);
+    ctx.closePath();
+    ctx.clip();
+
+    const sheen = ctx.createRadialGradient(VP_X, GAME_HEIGHT * 0.94, 80, VP_X, GAME_HEIGHT * 0.94, GAME_WIDTH * 0.72);
+    sheen.addColorStop(0, COURT_SKIN.floorHighlight);
+    sheen.addColorStop(0.46, 'rgba(255,210,130,0.07)');
+    sheen.addColorStop(1, 'rgba(255,210,130,0)');
+    ctx.fillStyle = sheen;
+    ctx.fillRect(0, FAR_BOTTOM, GAME_WIDTH, GAME_HEIGHT - FAR_BOTTOM);
+
+    for (let i = 0; i < 14; i++) {
+      const gy = (COURT.depth / 14) * i;
+      const t = depthT(gy);
+      const y = screenY(0, t);
+      const alpha = 0.035 + (1 - t) * 0.03;
+      ctx.strokeStyle = `rgba(95,45,14,${alpha.toFixed(3)})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(screenX(0, t), y);
+      ctx.lineTo(screenX(COURT.width, t), y);
+      ctx.stroke();
+    }
+
+    const leftShade = ctx.createLinearGradient(0, 0, FAR_LEFT, 0);
+    leftShade.addColorStop(0, 'rgba(25,14,6,0.24)');
+    leftShade.addColorStop(1, 'rgba(25,14,6,0)');
+    ctx.fillStyle = leftShade;
+    ctx.fillRect(0, FAR_BOTTOM, FAR_LEFT + 8, GAME_HEIGHT - FAR_BOTTOM);
+
+    const rightShade = ctx.createLinearGradient(GAME_WIDTH, 0, FAR_RIGHT, 0);
+    rightShade.addColorStop(0, 'rgba(25,14,6,0.24)');
+    rightShade.addColorStop(1, 'rgba(25,14,6,0)');
+    ctx.fillStyle = rightShade;
+    ctx.fillRect(FAR_RIGHT - 8, FAR_BOTTOM, GAME_WIDTH - FAR_RIGHT + 8, GAME_HEIGHT - FAR_BOTTOM);
+
+    ctx.restore();
+  }
+
   // ── Glass back wall ───────────────────────────────────────────────────────
   private drawGlassBackWall(_s: GameState): void {
     const ctx = this.ctx;
@@ -796,15 +923,19 @@ export class FrontWallRenderer {
     ctx.beginPath();
     ctx.rect(FAR_LEFT, FAR_TOP, FAR_W, glassTopY - FAR_TOP);
     const wallGrad = ctx.createLinearGradient(0, FAR_TOP, 0, glassTopY);
-    wallGrad.addColorStop(0, '#0e1626');
-    wallGrad.addColorStop(1, '#16223a');
+    wallGrad.addColorStop(0, '#1a2431');
+    wallGrad.addColorStop(0.45, '#eef0e8');
+    wallGrad.addColorStop(1, '#b9c1be');
     ctx.fillStyle = wallGrad;
     ctx.fill();
 
     // Back wall fill (glass band only — below the out line)
     ctx.beginPath();
     ctx.rect(FAR_LEFT, glassTopY, FAR_W, glassH);
-    ctx.fillStyle = 'rgba(20,40,70,0.7)';
+    const glassUnderpaint = ctx.createLinearGradient(0, glassTopY, 0, FAR_BOTTOM);
+    glassUnderpaint.addColorStop(0, 'rgba(28,60,84,0.48)');
+    glassUnderpaint.addColorStop(1, 'rgba(12,24,38,0.76)');
+    ctx.fillStyle = glassUnderpaint;
     ctx.fill();
 
     // Audience through glass — only below the back-wall out line. The source PNG bakes an
@@ -824,7 +955,7 @@ export class FrontWallRenderer {
           ctx.beginPath();
           ctx.rect(FAR_LEFT, backOutY, FAR_W, audienceH);
           ctx.clip();
-          ctx.globalAlpha = 0.4;
+          ctx.globalAlpha = 0.52;
           ctx.drawImage(img, 0, sy, img.naturalWidth, sh, FAR_LEFT, backOutY, FAR_W, audienceH);
           ctx.globalAlpha = 1;
           ctx.restore();
@@ -839,8 +970,8 @@ export class FrontWallRenderer {
     drawGalleryGlass(ctx, FAR_LEFT, glassTopY, FAR_W, glassH);
 
     // Back wall 4 frame edges (full FAR rect — the wall+glass back face outline)
-    ctx.strokeStyle = 'rgba(80,120,180,0.55)';
-    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(25,34,44,0.72)';
+    ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(FAR_LEFT, FAR_TOP); ctx.lineTo(FAR_RIGHT, FAR_TOP); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(FAR_LEFT, FAR_BOTTOM); ctx.lineTo(FAR_RIGHT, FAR_BOTTOM); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(FAR_LEFT, FAR_TOP); ctx.lineTo(FAR_LEFT, FAR_BOTTOM); ctx.stroke();
@@ -943,22 +1074,57 @@ export class FrontWallRenderer {
 
     // Ball glow
     const grd = ctx.createRadialGradient(bx, by, 0, bx, by, br * 2.5);
-    grd.addColorStop(0, '#ffe080');
-    grd.addColorStop(0.4, COL.ballGlow);
+    grd.addColorStop(0, '#fff7c6');
+    grd.addColorStop(0.32, COL.ballGlow);
     grd.addColorStop(1, 'rgba(255,120,0,0)');
     ctx.beginPath();
     ctx.arc(bx, by, br * 2.5, 0, Math.PI * 2);
     ctx.fillStyle = grd;
     ctx.fill();
 
+    const speed = Math.hypot(ball.vel.x, ball.vel.y, ball.vz);
+    if (speed > 8) {
+      const angle = Math.atan2(ball.vel.y, ball.vel.x || 0.1);
+      const len = Math.min(br * 7, speed * 2.4);
+      const tail = ctx.createLinearGradient(
+        bx - Math.cos(angle) * len,
+        by - Math.sin(angle) * len,
+        bx,
+        by,
+      );
+      tail.addColorStop(0, 'rgba(255,140,20,0)');
+      tail.addColorStop(0.55, 'rgba(255,190,60,0.20)');
+      tail.addColorStop(1, 'rgba(255,245,180,0.62)');
+      ctx.save();
+      ctx.strokeStyle = tail;
+      ctx.lineWidth = Math.max(2, br * 0.65);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(bx - Math.cos(angle) * len, by - Math.sin(angle) * len);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // Ball core
     ctx.beginPath();
     ctx.arc(bx, by, br, 0, Math.PI * 2);
-    ctx.fillStyle = COL.ball;
+    const core = ctx.createRadialGradient(bx - br * 0.35, by - br * 0.4, br * 0.1, bx, by, br);
+    core.addColorStop(0, '#fff9d2');
+    core.addColorStop(0.45, COL.ball);
+    core.addColorStop(1, '#d97816');
+    ctx.fillStyle = core;
     ctx.shadowColor = COL.ballGlow;
     ctx.shadowBlur = 12;
     ctx.fill();
     ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(90,45,0,0.35)';
+    ctx.lineWidth = Math.max(1, br * 0.12);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(bx - br * 0.32, by - br * 0.36, Math.max(1.5, br * 0.24), 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fill();
 
     // Landing marker on floor — concentric rings (同心圓) so the predicted
     // landing spot reads clearly. Outer rings fade; inner ring is brightest.
