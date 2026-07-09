@@ -60,6 +60,7 @@ export class Render3D {
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.PerspectiveCamera;
   private readonly ball: THREE.Mesh;
+  private readonly ballShadow: THREE.Mesh;
   private readonly playerA: PlayerVisual;
   private readonly playerB: PlayerVisual;
   private readonly crowd: Crowd;
@@ -72,21 +73,27 @@ export class Render3D {
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.08;
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x10141f);
+    this.scene.background = new THREE.Color(0x07090f);
 
     this.camera = new THREE.PerspectiveCamera(52, 16 / 9, 0.1, 60);
     // 後牆外上方,看向前牆下段(轉播機位)
     this.camera.position.set(0, 4.2, COURT_D / 2 + 4.4);
     this.camera.lookAt(this.lookAt);
 
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.75));
-    const key = new THREE.DirectionalLight(0xfff4e0, 1.4);
+    this.scene.add(new THREE.HemisphereLight(0xf7efe0, 0x182036, 0.82));
+    const key = new THREE.DirectionalLight(0xfff4d6, 1.65);
     key.position.set(3, 8, 4);
     this.scene.add(key);
-    const fill = new THREE.DirectionalLight(0xdce8ff, 0.5);
+    const fill = new THREE.DirectionalLight(0xdce8ff, 0.7);
     fill.position.set(-4, 6, -6);
     this.scene.add(fill);
+    const backGlow = new THREE.PointLight(0x77d7ff, 1.15, 12, 1.8);
+    backGlow.position.set(0, 2.5, COURT_D / 2 + 0.2);
+    this.scene.add(backGlow);
 
     this.scene.add(buildCourt());
 
@@ -94,6 +101,14 @@ export class Render3D {
       new THREE.SphereGeometry(0.07, 20, 14),
       new THREE.MeshStandardMaterial({ color: 0x15151a, roughness: 0.35 }),
     );
+    // 球的接地影:貼地圓片,越高越小越淡(高度感 + 落點預判)
+    this.ballShadow = new THREE.Mesh(
+      new THREE.CircleGeometry(0.09, 20),
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.32 }),
+    );
+    this.ballShadow.rotation.x = -Math.PI / 2;
+    this.ballShadow.position.y = 0.004;
+    this.scene.add(this.ballShadow);
     // P5 預設 sprite 像素球員;網址帶 ?c3d 退回程序化 3D 版(fallback)
     const useSprites = !window.location.search.includes('c3d');
     this.playerA = useSprites ? makeSpritePlayerA() : new Player3D(0x3b82f6);
@@ -117,12 +132,20 @@ export class Render3D {
     let faceZ = -COURT_D / 2; // 沒球時面向前牆
     if (state.ball === null) {
       this.ball.visible = false;
+      this.ballShadow.visible = false;
     } else {
       this.ball.visible = true;
       toWorld(state.ball, this.tmp);
       this.ball.position.copy(this.tmp);
       faceX = this.tmp.x;
       faceZ = this.tmp.z;
+      // 影子跟著球的地面投影;高度 0→3m 之間縮小變淡
+      this.ballShadow.visible = true;
+      this.ballShadow.position.set(this.tmp.x, 0.004, this.tmp.z);
+      const h = Math.min(Math.max(this.tmp.y, 0), 3) / 3;
+      const s = 1.2 - h * 0.7;
+      this.ballShadow.scale.set(s, s, 1);
+      (this.ballShadow.material as THREE.MeshBasicMaterial).opacity = 0.32 * (1 - h * 0.75);
     }
     toWorld(state.playerA, this.tmp);
     this.playerA.pose(this.tmp.x, this.tmp.z, faceX, faceZ);

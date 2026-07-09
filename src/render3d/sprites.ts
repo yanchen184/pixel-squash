@@ -59,6 +59,8 @@ export class SpritePlayer {
   private runPhase = 0;
   private readonly lastPos = new THREE.Vector2();
   private speed = 0;
+  private moveX = 0; // 橫向速度(平滑),決定跑步幀左右鏡像
+  private facing = 1; // 1=原圖(朝右跑) -1=鏡像(朝左跑)
 
   constructor(sheet: THREE.Texture) {
     this.group = new THREE.Group();
@@ -90,9 +92,11 @@ export class SpritePlayer {
   pose(x: number, z: number, faceX: number, _faceZ: number): void {
     this.group.position.set(x, 0, z);
     this.ballSide = faceX - x >= 0 ? 1 : -1;
-    const dist = Math.hypot(x - this.lastPos.x, z - this.lastPos.y);
+    const dx = x - this.lastPos.x;
+    const dist = Math.hypot(dx, z - this.lastPos.y);
     this.lastPos.set(x, z);
     this.speed = this.speed * 0.85 + dist * 60 * 0.15;
+    this.moveX = this.moveX * 0.85 + dx * 60 * 0.15;
   }
 
   triggerSwing(): void {
@@ -112,14 +116,20 @@ export class SpritePlayer {
     this.clock += dt;
     const swingT = (this.clock - this.swingAt) / SWING_SEC;
     if (swingT >= 0 && swingT <= 1) {
-      // 揮拍:0.3 秒內播完該列 4 幀
+      // 揮拍:0.3 秒內播完該列 4 幀(正反手已依球側選列,不鏡像)
+      this.mesh.scale.x = 1;
       setFrame(this.tex, this.swingRow * COLS + Math.min(COLS - 1, Math.floor(swingT * COLS)));
       return;
     }
     if (this.speed > RUN_SPEED_MIN) {
+      // 原圖跑步幀朝右;往左移就水平鏡像,沒有明確橫向時沿用上次朝向
+      if (this.moveX > 0.25) this.facing = 1;
+      else if (this.moveX < -0.25) this.facing = -1;
+      this.mesh.scale.x = this.facing;
       this.runPhase += dt * (8 + this.speed * 2.5); // 跑越快步頻越高
       setFrame(this.tex, COLS + Math.floor(this.runPhase) % COLS);
     } else {
+      this.mesh.scale.x = 1;
       setFrame(this.tex, Math.floor(this.clock * 5) % COLS); // 待機呼吸 5fps
     }
   }

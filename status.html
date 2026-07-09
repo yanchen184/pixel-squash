@@ -147,9 +147,10 @@
       <span class="chip">vitest <b>225 / 225 綠(24 檔)</b></span>
       <span class="chip">e2e <b>14 / 14 綠(5 檔)</b></span>
       <span class="chip">L4 走廊 <b>全綠 ✅</b></span>
+      <span class="chip">視覺收尾 <b>sprite round-trip ✅</b></span>
       <span class="chip">線上 <a href="https://pixel-squash.web.app" target="_blank">pixel-squash.web.app</a></span>
       <span class="chip">重播 <a href="https://pixel-squash.web.app/replay.html?seed=20260707&a=strong&b=weak&rallies=6&autoplay=1" target="_blank">AI 對打觀戰 →</a></span>
-      <span class="chip">最後更新 <b id="updated">2026-07-08</b></span>
+      <span class="chip">最後更新 <b id="updated">2026-07-09</b></span>
     </div>
   </div>
 </header>
@@ -166,7 +167,7 @@
       <div class="ms"><div class="k">M2 · 迴圈</div><div class="t">8 階職業天梯</div><div class="d">阿新→修羅 8 個具名 bot 人格,反應/失誤梯度單調;localStorage 存進度。</div></div>
       <div class="ms"><div class="k">M3 · 迴圈</div><div class="t">每日挑戰</div><div class="d">日期 seed 決定當日對手,全世界同題;本地最佳紀錄 + 可分享 AI 對打重播。</div></div>
       <div class="ms"><div class="k">M4 · 上架</div><div class="t">教學 + 設定 + favicon</div><div class="d">互動式 5 步新手教學、暫停面板、音量設定持久化、分頁 icon。</div></div>
-      <div class="ms"><div class="k">P5 · 視覺</div><div class="t">sprite sheet 動畫</div><div class="d">codex 生成 4×4(16 幀)像素圖:球員待機/跑步/正反手揮拍、觀眾席輪播、擊牆火花;billboard 渲染。</div></div>
+      <div class="ms"><div class="k">P5 · 視覺</div><div class="t">sprite sheet 動畫</div><div class="d">codex 生成 4×4(16 幀)像素圖:球員待機/跑步/正反手揮拍、觀眾席輪播、擊牆火花;billboard 渲染。2026-07-08 收尾:清多餘球、重切格、腳部錨點影子對位、左移鏡像與後退表現截圖驗過。</div></div>
     </div>
   </section>
 
@@ -202,7 +203,8 @@
       <div class="card">
         <h3>👾 像素 sprite 動畫 <span class="tag-new">P5</span></h3>
         <ul>
-          <li><b>16 幀球員</b> <span>4×4 sprite sheet:待機呼吸/跑步/正反手揮拍四列,依速度與揮拍事件切列;圓柱 billboard 面向鏡頭</span></li>
+          <li><b>16 幀球員</b> <span>4×4 sprite sheet:待機呼吸/跑步/正反手揮拍四列,依速度與揮拍事件切列;圓柱 billboard 面向鏡頭。格內多餘球已清、內容完整重切,腳部錨點與影子對位。</span></li>
+          <li><b>移動朝向</b> <span>左移鏡像、後退姿態與接地影子用 Playwright 截圖 round-trip 驗證。</span></li>
           <li><b>觀眾席</b> <span>前牆上方 4 面板錯相輪播(拍手/歡呼),避免同步複製感</span></li>
           <li><b>擊牆火花</b> <span>引擎 ball-wall 事件帶撞擊點,加法混合火花在撞擊處播 16 幀</span></li>
           <li><b>可退回</b> <span>網址帶 <code>?c3d</code> 切回程序化 3D 球員(fallback)</span></li>
@@ -307,6 +309,7 @@
         <tr><td class="num">12</td><td><b>教學/暫停 e2e</b>:5 步教學按住方向鍵推進步驟、Esc 開暫停面板(tutorial-pause.spec.ts)</td><td><span class="verify-badge vC">C</span></td><td class="pass">✅</td></tr>
         <tr><td class="num">13</td><td><b>重播檢視器 e2e</b>:/replay.html 載入 → 自動播放 tick 前進 → 最終 hash 與 blessed 值相等(replay-viewer.spec.ts)</td><td><span class="verify-badge vC">C</span></td><td class="pass">✅</td></tr>
         <tr><td class="num">14</td><td><b>線上 round-trip</b>:pixel-squash.web.app 真開真玩、分頁有 favicon 非預設地球;線上 /replay.html hash === blessed</td><td><span class="verify-badge vB">B</span><span class="verify-badge vC">C</span></td><td class="pass">✅</td></tr>
+        <tr><td class="num">15</td><td><b>sprite / 美術皮 round-trip</b>:player sprite sheet 逐格清理後真頁面截圖驗證;腳部錨點貼影子中心、左移鏡像、後退/移動姿態無固定滑行;3D 球場套木地板/牆面/玻璃燈光皮膚</td><td><span class="verify-badge vB">B</span><span class="verify-badge vC">C</span></td><td class="pass">✅</td></tr>
       </tbody>
     </table>
   </section>
