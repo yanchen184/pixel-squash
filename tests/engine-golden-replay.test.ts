@@ -5,14 +5,16 @@
  *
  * Blessed 2026-07-07:seed 42(medium×medium×4 回合)與 seed 20260707
  * (strong×weak×6 回合)已在重播檢視器人工檢視(P3/P4 round-trip 截圖)。
+ * Re-blessed 2026-07-09:分球路球速倍率上線(SPEED_SCALE,drive/kill 0.65 等)→
+ * 節奏放慢、回合更長,重播動態重新祝福,hash/ticks 依新物理更新。
  */
 import { describe, expect, it } from 'vitest';
 import { BOT_MEDIUM, BOT_STRONG, BOT_WEAK } from '../src/engine/bot';
 import { recordSelfplay } from '../src/engine/selfplayReplay';
 
 const BLESSED = [
-  { name: 'seed 42 · medium×medium×4', seed: 42, a: BOT_MEDIUM, b: BOT_MEDIUM, rallies: 4, ticks: 1165, hash: 2080951699 },
-  { name: 'seed 20260707 · strong×weak×6', seed: 20260707, a: BOT_STRONG, b: BOT_WEAK, rallies: 6, ticks: 1304, hash: 2710714533 },
+  { name: 'seed 42 · medium×medium×4', seed: 42, a: BOT_MEDIUM, b: BOT_MEDIUM, rallies: 4, ticks: 1209, hash: 2128115773 },
+  { name: 'seed 20260707 · strong×weak×6', seed: 20260707, a: BOT_STRONG, b: BOT_WEAK, rallies: 6, ticks: 2432, hash: 4216530404 },
 ] as const;
 
 describe('L5 黃金重播(blessed replays)', () => {

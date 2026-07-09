@@ -25,14 +25,51 @@ export interface ShotSpec {
   readonly landMaxY: number;
 }
 
-/** 六球路 = 3 欄位(速度/高度帶/落點帶),fault 條件由規則層统一判 */
-export const SHOTS: Record<ShotKind, ShotSpec> = {
+/**
+ * 分球路出手速度倍率 —— 想讓某球路變慢就調小它(1.0 = 原速)。
+ * 設計取向(下棋式節奏):
+ *   - drive/kill 是主要對打節奏 → 砍到 ~0.65,球慢下來玩家才有時間讀站位+球位、決定落點。
+ *   - lob/serve/drop/boast 需要速度撐過整個 9.75m 球場吊高打到前牆,倍率一低就打不到牆變無解,
+ *     故維持接近原速(實測 0.7 以下 lob 全滅)。
+ * 要整體再慢一點:優先只降 drive/kill;lob/serve 想降須連帶放寬其落點帶/高度帶,
+ * 調完務必跑 `npx tsx scan-scale.mts` + `npx vitest run` 確認每球路仍解得出、測試綠。
+ * 可用環境變數 SS 全域再乘一層做快速手感試驗(SS=0.9 npx tsx scan-scale.mts),production 預設 1.0。
+ */
+export const SPEED_SCALE: Record<ShotKind, number> = {
+  drive: 0.65,
+  kill: 0.65,
+  drop: 0.92,
+  lob: 1.0,
+  boast: 0.8,
+  serve: 0.95,
+};
+
+const GLOBAL_SS =
+  typeof process !== 'undefined' && process.env?.SS ? Number(process.env.SS) : 1.0;
+
+/** 六球路基準速度(未套倍率);實際出手速度 = 基準 × SPEED_SCALE[kind] × GLOBAL_SS */
+const BASE_SHOTS: Record<ShotKind, ShotSpec> = {
   drive: { speed: 32, bandLo: 0.55, bandHi: 1.6, landMinY: 6.0, landMaxY: 9.75 },
   kill: { speed: 38, bandLo: 0.49, bandHi: 0.85, landMinY: 0, landMaxY: 5.6 },
   drop: { speed: 11, bandLo: 0.5, bandHi: 1.1, landMinY: 0, landMaxY: 3.8 },
   lob: { speed: 15, bandLo: 2.4, bandHi: 4.4, landMinY: 6.8, landMaxY: 9.75 },
   boast: { speed: 24, bandLo: 0.55, bandHi: 1.9, landMinY: 0, landMaxY: 5.5 },
   serve: { speed: 17, bandLo: 2.0, bandHi: 4.3, landMinY: 5.6, landMaxY: 9.7 },
+};
+
+function scaled(kind: ShotKind): ShotSpec {
+  const base = BASE_SHOTS[kind];
+  return { ...base, speed: base.speed * SPEED_SCALE[kind] * GLOBAL_SS };
+}
+
+/** 六球路 = 3 欄位(速度/高度帶/落點帶),fault 條件由規則層统一判 */
+export const SHOTS: Record<ShotKind, ShotSpec> = {
+  drive: scaled('drive'),
+  kill: scaled('kill'),
+  drop: scaled('drop'),
+  lob: scaled('lob'),
+  boast: scaled('boast'),
+  serve: scaled('serve'),
 };
 
 export interface SolveOptions {
