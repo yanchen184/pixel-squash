@@ -165,7 +165,8 @@ describe('L3 品質層接進對局(bot 路徑零污染)', () => {
   });
 
   it('發球不受品質擾動:serve 事件速度在合法解範圍(risk=0 的保證)', () => {
-    const r = runScripted(7, SERVE_DELAY_TICKS + 10);
+    // 兩段發球:countdown(45)→拋球→拋球後最短間隔+球落回才擊,serve 事件晚於單段版,放寬視窗
+    const r = runScripted(7, SERVE_DELAY_TICKS + 40);
     const serve = r.events.find((e) => e.type === 'hit' && e.kind === 'serve');
     expect(serve).toBeDefined();
   });

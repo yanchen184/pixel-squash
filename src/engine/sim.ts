@@ -16,6 +16,9 @@ import type { ShotKind } from './shot';
 import { solveShot } from './shot';
 
 export const SERVE_DELAY_TICKS = 45; // 回合結束到下一發球的間隔(0.75s)
+const SERVE_TOSS_VZ = 3.2; // 拋球上拋速度(m/s):約 0.65s 滯空,夠反應
+const SERVE_STRIKE_MIN_TICKS = 12; // 拋球後至少 0.2s 才准擊(不許同幀拋+擊)
+const SERVE_TOSS_TIMEOUT = 90; // 安全閥:拋球後 1.5s 還沒擊 → 強制擊,免卡死
 
 export type Controller =
   | { readonly type: 'bot'; readonly skill: BotSkill }
@@ -44,6 +47,11 @@ export interface GameSim {
   readonly tick: number;
   readonly lastHitTick: number;
   readonly serveCountdown: number;
+  /**
+   * 發球拋球子狀態(兩段發球):null = 還沒拋球;非 null = 球已拋起、滯空等擊球。
+   * 只在 phase='awaiting-serve' 期間有意義;真正擊球或回合開始後清回 null。
+   */
+  readonly serveToss: { readonly tossTick: number } | null;
   /** 揮拍窗齡:swing 連續 true 的 tick 數,-1 = 沒在揮(bot 恆 -1) */
   readonly swingAgeA: number;
   readonly swingAgeB: number;
@@ -95,6 +103,7 @@ export function createGame(firstServer: PlayerId = 'A'): GameSim {
     tick: 0,
     lastHitTick: 0,
     serveCountdown: SERVE_DELAY_TICKS,
+    serveToss: null,
     swingAgeA: -1,
     swingAgeB: -1,
   };
@@ -195,6 +204,7 @@ export function stepGame(
   let posB = sim.playerB.pos;
   let lastHitTick = sim.lastHitTick;
   let serveCountdown = sim.serveCountdown;
+  let serveToss = sim.serveToss;
 
   // 揮拍窗齡:external 且 swing=true 才累加(接觸瞬間讀「按下後已過幾 tick」);bot 恆 -1
   const swingAgeA =
@@ -210,7 +220,7 @@ export function stepGame(
         : sim.swingAgeB + 1
       : -1;
 
-  // ---- 發球階段 ----
+  // ---- 發球階段(兩段:拋球 → 擊球)----
   if (match.phase === 'awaiting-serve') {
     const server = match.server;
     const box = match.serveBox;
@@ -218,21 +228,51 @@ export function stepGame(
     posA = server === 'A' ? serveBoxPos(box) : receiverPos(box);
     posB = server === 'B' ? serveBoxPos(box) : receiverPos(box);
     const ctrl = controllers[server];
-    const ready = serveCountdown <= 0;
-    const wantServe = ctrl.type === 'bot' ? ready : inputs[server].swing;
-    if (wantServe && (ctrl.type === 'bot' || ready)) {
-      const from: Vec3 = { ...serveBoxPos(box), z: CONTACT_Z };
-      const targetX = box === 'left' ? COURT_W - 1.6 : 1.6;
-      const requireLandHalf = box === 'left' ? 'right' : 'left';
-      const v =
-        solveShot(from, targetX, 'serve', { requireLandHalf }) ?? shovelVelocity(from);
-      match = onRacketHit(match, server);
-      ball = createBall(from, v);
-      lastHitTick = tick;
-      const sp = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-      events.push({ type: 'hit', player: server, kind: 'serve', speed: sp, point: from });
+    const from: Vec3 = { ...serveBoxPos(box), z: CONTACT_Z };
+
+    if (serveToss === null) {
+      // 第一段:拋球。bot 等 countdown 到、人類按 swing → 把球純上拋(vx=vy=0)。
+      const ready = serveCountdown <= 0;
+      const wantToss = ctrl.type === 'bot' ? ready : inputs[server].swing && ready;
+      if (wantToss) {
+        ball = createBall(from, { x: 0, y: 0, z: SERVE_TOSS_VZ });
+        serveToss = { tossTick: tick };
+      } else {
+        serveCountdown -= 1;
+      }
     } else {
-      serveCountdown -= 1;
+      // 拋球滯空:推進物理(自由落體),不餵規則(還沒真正擊球)。
+      const tossAge = tick - serveToss.tossTick;
+      if (ball !== null) {
+        const { ball: nextBall, events: ballEvents } = stepBall(ball);
+        ball = nextBall;
+        // 拋球期間只發地板/牆音效不判分(理論上拋球不會撞牆,但保險起見不餵規則)
+        for (const ev of ballEvents) {
+          if (ev.type === 'floor-bounce') events.push({ type: 'ball-floor', point: ev.point });
+        }
+      }
+      // 第二段:擊球。條件:過了最短間隔,且(人類再按 swing / bot 到擊球窗 / 安全閥逾時)。
+      const canStrike = tossAge >= SERVE_STRIKE_MIN_TICKS;
+      const ballLow = ball !== null && ball.pos.z <= CONTACT_Z + 0.05; // 球落回擊球高度
+      const wantStrike =
+        ctrl.type === 'bot'
+          ? ballLow || tossAge >= SERVE_TOSS_TIMEOUT
+          : inputs[server].swing || ballLow || tossAge >= SERVE_TOSS_TIMEOUT;
+      if (canStrike && wantStrike) {
+        // 從當前拋球位置擊球(球在手掌高度附近);z 夾回 CONTACT_Z 讓球路解算穩定。
+        const strikeFrom: Vec3 = { x: from.x, y: from.y, z: CONTACT_Z };
+        const targetX = box === 'left' ? COURT_W - 1.6 : 1.6;
+        const requireLandHalf = box === 'left' ? 'right' : 'left';
+        const v =
+          solveShot(strikeFrom, targetX, 'serve', { requireLandHalf }) ??
+          shovelVelocity(strikeFrom);
+        match = onRacketHit(match, server);
+        ball = createBall(strikeFrom, v);
+        lastHitTick = tick;
+        serveToss = null;
+        const sp = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+        events.push({ type: 'hit', player: server, kind: 'serve', speed: sp, point: strikeFrom });
+      }
     }
     return {
       sim: {
@@ -243,6 +283,7 @@ export function stepGame(
         tick,
         lastHitTick,
         serveCountdown,
+        serveToss,
         swingAgeA,
         swingAgeB,
       },
@@ -279,6 +320,7 @@ export function stepGame(
           tick,
           lastHitTick,
           serveCountdown: SERVE_DELAY_TICKS,
+          serveToss: null,
           swingAgeA,
           swingAgeB,
         },
@@ -362,6 +404,7 @@ export function stepGame(
       tick,
       lastHitTick,
       serveCountdown,
+      serveToss: null,
       swingAgeA,
       swingAgeB,
     },
